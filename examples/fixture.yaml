@@ -17,7 +17,6 @@ scenarios:
   - id: "clipped"
     title: "Detect intentionally clipped text"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "wait"
@@ -27,56 +26,52 @@ scenarios:
   - id: "overlap"
     title: "Detect overlapping buttons"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "assert"
         target:
-          automationId: "PrimaryAction"
+          name: "Run validation"
           controlType: "Button"
         otherTarget:
-          automationId: "SecondaryAction"
+          name: "Open evidence"
           controlType: "Button"
         condition: "noOverlap"
         checkpoint: "overlap"
   - id: "offscreen"
     title: "Detect controls outside the window"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "assert"
         target:
-          automationId: "OffscreenAction"
+          name: "Export report"
           controlType: "Button"
         condition: "withinWindow"
         checkpoint: "offscreen"
   - id: "disabled"
     title: "Detect unexpectedly disabled actions"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "assert"
         target:
-          automationId: "ExpectedEnabledAction"
+          name: "Continue test"
           controlType: "Button"
         condition: "enabled"
         checkpoint: "disabled"
   - id: "unresponsive"
     title: "Detect clicks without the declared response"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "click"
         target:
-          automationId: "ResponseAction"
+          name: "Update status"
           controlType: "Button"
         checkpoint: "unresponsive"
       - action: "assert"
         target:
-          automationId: "ResponseStatus"
+          name: "Response status"
           controlType: "Text"
         condition: "textEquals"
         value: "Completed"
@@ -84,12 +79,11 @@ scenarios:
   - id: "blank"
     title: "Detect an unexpectedly empty result region"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "assert"
         target:
-          automationId: "ContentReady"
+          name: "Content ready"
           controlType: "Text"
         condition: "exists"
         checkpoint: "blank"

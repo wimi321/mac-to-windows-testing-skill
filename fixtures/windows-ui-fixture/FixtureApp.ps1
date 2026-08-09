@@ -10,6 +10,15 @@ function Set-Identity {
     param([System.Windows.Forms.Control]$Control, [string]$Name, [string]$AccessibleName = $Name)
     $Control.Name = $Name
     $Control.AccessibleName = $AccessibleName
+    if ($Control -is [System.Windows.Forms.ButtonBase]) {
+        $Control.AccessibleRole = [System.Windows.Forms.AccessibleRole]::PushButton
+    }
+    elseif ($Control -is [System.Windows.Forms.Label]) {
+        $Control.AccessibleRole = [System.Windows.Forms.AccessibleRole]::StaticText
+    }
+    elseif ($Control -is [System.Windows.Forms.Panel]) {
+        $Control.AccessibleRole = [System.Windows.Forms.AccessibleRole]::Grouping
+    }
 }
 
 $form = [System.Windows.Forms.Form]::new()

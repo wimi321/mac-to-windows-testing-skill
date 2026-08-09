@@ -17,42 +17,41 @@ scenarios:
   - id: "clean-window"
     title: "Clean fixture remains usable"
     window:
-      automationId: "FixtureMainWindow"
       name: "Mac-to-Windows Fixture"
     steps:
       - action: "wait"
         seconds: 1
       - action: "assert"
         target:
-          automationId: "PrimaryAction"
+          name: "Run validation"
           controlType: "Button"
         otherTarget:
-          automationId: "SecondaryAction"
+          name: "Open evidence"
           controlType: "Button"
         condition: "noOverlap"
       - action: "assert"
         target:
-          automationId: "OffscreenAction"
+          name: "Export report"
           controlType: "Button"
         condition: "withinWindow"
       - action: "assert"
         target:
-          automationId: "ExpectedEnabledAction"
+          name: "Continue test"
           controlType: "Button"
         condition: "enabled"
       - action: "click"
         target:
-          automationId: "ResponseAction"
+          name: "Update status"
           controlType: "Button"
       - action: "assert"
         target:
-          automationId: "ResponseStatus"
+          name: "Response status"
           controlType: "Text"
         condition: "textEquals"
         value: "Completed"
       - action: "assert"
         target:
-          automationId: "ContentReady"
+          name: "Content ready"
           controlType: "Text"
         condition: "exists"
       - action: "screenshot"
