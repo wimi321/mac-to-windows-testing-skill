@@ -32,3 +32,26 @@ scenarios:
         condition: "visible"
       - action: "screenshot"
         checkpoint: "main-window"
+      - action: "click"
+        checkpoint: "open-auto-setup"
+        target:
+          name: "一键设置"
+          controlType: "Button"
+  - id: "auto-setup-dialog"
+    title: "KataGo one-click setup opens in front of the main window"
+    window:
+      nameContains: "KataGo 一键设置"
+      controlType: "Window"
+    steps:
+      - action: "wait"
+        seconds: 1
+      - action: "assert"
+        target:
+          nameContains: "KataGo 一键设置"
+          controlType: "Window"
+        condition: "visible"
+      - action: "discover"
+        checkpoint: "auto-setup-interaction-map"
+      - action: "screenshot"
+        checkpoint: "auto-setup-dialog"
+      - action: "close"
