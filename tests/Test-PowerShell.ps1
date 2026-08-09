@@ -48,4 +48,21 @@ if ($exitProbe.ExitCode -ne 7) { throw 'Redirected process exit code was not syn
 if ($probeOutput.GetAwaiter().GetResult().Trim() -ne 'probe-output') { throw 'Redirected stdout was not captured.' }
 if ($probeError.GetAwaiter().GetResult()) { throw 'Redirected stderr was unexpectedly populated.' }
 
+$trustRoot = Join-Path ([IO.Path]::GetTempPath()) ("m2w-trust-" + [Guid]::NewGuid().ToString('N'))
+try {
+    [IO.Directory]::CreateDirectory($trustRoot) | Out-Null
+    '[]' | Set-Content -LiteralPath (Join-Path $trustRoot 'trusted-profiles.json') -Encoding UTF8
+    $trustScript = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\Trust-Profile.ps1'
+    $firstSha = 'a' * 64
+    $secondSha = 'b' * 64
+    & $trustScript -RunnerRoot $trustRoot -ProfileSha256 $firstSha -Repository 'https://example.test/one' | Out-Null
+    & $trustScript -RunnerRoot $trustRoot -ProfileSha256 $secondSha -Repository 'https://example.test/two' | Out-Null
+    $trustedProfiles = Get-Content -LiteralPath (Join-Path $trustRoot 'trusted-profiles.json') -Raw | ConvertFrom-Json
+    if (@($trustedProfiles).Count -ne 2) { throw 'Trusted profile registry did not retain two flat entries.' }
+    if (@($trustedProfiles | Where-Object { -not $_.PSObject.Properties['profileSha256'] }).Count) { throw 'Trusted profile registry contains a wrapped or invalid entry.' }
+}
+finally {
+    Remove-Item -LiteralPath $trustRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Output "Validated $($files.Count) PowerShell files."

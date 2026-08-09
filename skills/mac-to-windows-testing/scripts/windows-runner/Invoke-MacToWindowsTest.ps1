@@ -63,8 +63,19 @@ function Test-TrustedManifest {
     param($Manifest, [string]$Root)
     $trustPath = Join-Path $Root 'trusted-profiles.json'
     if (-not (Test-Path -LiteralPath $trustPath)) { return $false }
-    try { $trusted = @(Get-Content -LiteralPath $trustPath -Raw | ConvertFrom-Json) } catch { return $false }
-    return [bool]($trusted | Where-Object { $_.profileSha256 -eq $Manifest.profileSha256 })
+    try { $parsed = Get-Content -LiteralPath $trustPath -Raw | ConvertFrom-Json } catch { return $false }
+    $trusted = [System.Collections.Generic.List[object]]::new()
+    foreach ($candidate in @($parsed)) {
+        if ($candidate.PSObject.Properties['profileSha256']) {
+            $trusted.Add($candidate)
+        }
+        elseif ($candidate.PSObject.Properties['value']) {
+            foreach ($nested in @($candidate.value)) {
+                if ($nested.PSObject.Properties['profileSha256']) { $trusted.Add($nested) }
+            }
+        }
+    }
+    return [bool]($trusted | Where-Object { [string]$_.profileSha256 -eq [string]$Manifest.profileSha256 })
 }
 
 function Save-StepEvidence {
