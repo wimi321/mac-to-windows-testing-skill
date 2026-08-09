@@ -2,7 +2,7 @@ version: 1
 project:
   name: "Windows UI clean fixture"
   repository: "https://github.com/wimi321/mac-to-windows-testing-skill"
-  windowsWorkspace: "C:\\MacToWindowsTesting\\mac-to-windows-testing-skill"
+  windowsWorkspace: "%USERPROFILE%\\source\\repos\\mac-to-windows-testing-skill"
   artifact: "fixtures\\windows-ui-fixture\\FixtureApp.ps1"
 commands:
   build: "powershell.exe -NoProfile -Command \"$ErrorActionPreference='Stop'; [void][System.Management.Automation.Language.Parser]::ParseFile('fixtures\\windows-ui-fixture\\FixtureApp.ps1',[ref]$null,[ref]$null)\""
