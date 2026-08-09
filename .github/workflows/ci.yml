@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run controller and packaging tests
+        run: ./tests/run_tests.sh
+      - name: Validate skill structure
+        run: python3 scripts/validate_repository.py
+
+  windows-static:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run controller tests
+        shell: pwsh
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Parse and unit-test PowerShell
+        shell: powershell
+        run: .\tests\Test-PowerShell.ps1
+      - name: Verify non-interactive UI verdict is blocked
+        shell: powershell
+        run: |
+          Import-Module .\skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1 -Force
+          $state = Get-M2WSessionState
+          if ($state.Status -eq 'READY') {
+            Write-Output 'Hosted runner unexpectedly has an interactive desktop; no assertion needed.'
+          } elseif ($state.Status -ne 'BLOCKED') {
+            throw "Expected READY or BLOCKED, received $($state.Status)"
+          }
+      - name: Validate repository
+        shell: pwsh
+        run: python scripts\validate_repository.py
+
+  package:
+    needs: [portable-tests, windows-static]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 scripts/package_release.py --version ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-to-windows-testing-skill-ci
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS

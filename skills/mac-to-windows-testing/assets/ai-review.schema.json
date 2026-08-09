@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wimi321/mac-to-windows-testing-skill/schemas/ai-review.schema.json",
+  "title": "Mac-to-Windows AI visual review",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "status", "confidence", "findings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["PASS", "FAIL", "BLOCKED"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "blocker": { "type": ["string", "null"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scenario", "checkpoint", "screenshot", "severity", "summary", "evidence", "confidence"],
+        "properties": {
+          "scenario": { "type": "string" },
+          "checkpoint": { "type": "string" },
+          "screenshot": { "type": "string" },
+          "severity": { "enum": ["info", "minor", "major", "critical"] },
+          "summary": { "type": "string" },
+          "evidence": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

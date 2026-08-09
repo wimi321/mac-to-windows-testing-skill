@@ -1,0 +1,95 @@
+version: 1
+project:
+  name: "Windows UI defect fixture"
+  repository: "https://github.com/wimi321/mac-to-windows-testing-skill"
+  windowsWorkspace: "C:\\MacToWindowsTesting\\mac-to-windows-testing-skill"
+  artifact: "fixtures\\windows-ui-fixture\\FixtureApp.ps1"
+commands:
+  build: "powershell.exe -NoProfile -Command \"$ErrorActionPreference='Stop'; [void][System.Management.Automation.Language.Parser]::ParseFile('fixtures\\windows-ui-fixture\\FixtureApp.ps1',[ref]$null,[ref]$null)\""
+  test: "powershell.exe -NoProfile -Command \"Write-Output fixture-ready\""
+  launch: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File fixtures\\windows-ui-fixture\\FixtureApp.ps1 -Mode defects"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+scenarios:
+  - id: "clipped"
+    title: "Detect intentionally clipped text"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "wait"
+        seconds: 1
+      - action: "screenshot"
+        checkpoint: "clipped"
+  - id: "overlap"
+    title: "Detect overlapping buttons"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "assert"
+        target:
+          automationId: "PrimaryAction"
+          controlType: "Button"
+        otherTarget:
+          automationId: "SecondaryAction"
+          controlType: "Button"
+        condition: "noOverlap"
+        checkpoint: "overlap"
+  - id: "offscreen"
+    title: "Detect controls outside the window"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "assert"
+        target:
+          automationId: "OffscreenAction"
+          controlType: "Button"
+        condition: "withinWindow"
+        checkpoint: "offscreen"
+  - id: "disabled"
+    title: "Detect unexpectedly disabled actions"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "assert"
+        target:
+          automationId: "ExpectedEnabledAction"
+          controlType: "Button"
+        condition: "enabled"
+        checkpoint: "disabled"
+  - id: "unresponsive"
+    title: "Detect clicks without the declared response"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "click"
+        target:
+          automationId: "ResponseAction"
+          controlType: "Button"
+        checkpoint: "unresponsive"
+      - action: "assert"
+        target:
+          automationId: "ResponseStatus"
+          controlType: "Text"
+        condition: "textEquals"
+        value: "Completed"
+        checkpoint: "unresponsive-result"
+  - id: "blank"
+    title: "Detect an unexpectedly empty result region"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "assert"
+        target:
+          automationId: "ContentReady"
+          controlType: "Text"
+        condition: "exists"
+        checkpoint: "blank"

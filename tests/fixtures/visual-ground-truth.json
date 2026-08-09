@@ -1,0 +1,5 @@
+{
+  "expected": ["clipped", "overlap", "offscreen", "disabled", "unresponsive", "blank"],
+  "minimumRecall": 0.95,
+  "maximumFalsePositiveRate": 0.05
+}

@@ -1,0 +1,27 @@
+version: 1
+project:
+  name: "Java Swing desktop app"
+  repository: "https://github.com/example/swing-app"
+  windowsWorkspace: "C:\\MacToWindowsTesting\\swing-app"
+  artifact: "target\\app-shaded.jar"
+commands:
+  build: "mvn.cmd -B -DskipTests package"
+  test: "mvn.cmd -B test"
+  launch: "runtime\\bin\\javaw.exe -jar target\\app-shaded.jar"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+scenarios:
+  - id: "swing-main"
+    title: "Swing main window and settings"
+    window:
+      name: "Swing App"
+    steps:
+      - action: "wait"
+        seconds: 2
+      - action: "shortcut"
+        keys: "%s"
+      - action: "screenshot"
+        checkpoint: "settings"

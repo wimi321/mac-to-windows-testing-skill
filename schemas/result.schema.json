@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wimi321/mac-to-windows-testing-skill/schemas/result.schema.json",
+  "title": "Mac-to-Windows run result",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "status", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["PASS", "FAIL", "BLOCKED", "PENDING_AI_REVIEW"] },
+    "blocker": { "type": ["string", "null"] },
+    "createdAt": { "type": "string" },
+    "finishedAt": { "type": "string" },
+    "visualConfidenceThreshold": { "type": "number" },
+    "environment": { "type": "object" },
+    "scenarios": { "type": "array" },
+    "visualReview": { "type": "object" }
+  },
+  "additionalProperties": true
+}

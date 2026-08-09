@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible controller, runner, evidence, or installer defect.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste passwords, tokens, private IP addresses, device IDs, or unredacted screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options: [SSH, WinRM, UU plus Computer Use, Windows-side AI, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include sanitized commands and the final PASS, FAIL, or BLOCKED result.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Attach report.md and only screenshots safe to publish.

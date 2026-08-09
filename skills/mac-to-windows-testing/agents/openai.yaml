@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mac-to-Windows Testing"
+  short_description: "Automatically validate Mac-built apps on a real Windows PC"
+  default_prompt: "Use $mac-to-windows-testing to validate this project on a real Windows PC and return evidence-backed PASS, FAIL, or BLOCKED."

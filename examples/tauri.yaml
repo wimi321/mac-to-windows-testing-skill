@@ -1,0 +1,25 @@
+version: 1
+project:
+  name: "Tauri desktop app"
+  repository: "https://github.com/example/tauri-app"
+  windowsWorkspace: "C:\\MacToWindowsTesting\\tauri-app"
+  artifact: "src-tauri\\target\\release\\tauri-app.exe"
+commands:
+  build: "cargo.exe build --release --manifest-path src-tauri\\Cargo.toml"
+  test: "cargo.exe test --manifest-path src-tauri\\Cargo.toml"
+  launch: "src-tauri\\target\\release\\tauri-app.exe"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+scenarios:
+  - id: "tauri-main"
+    title: "Tauri WebView window"
+    window:
+      name: "Tauri App"
+    steps:
+      - action: "wait"
+        seconds: 2
+      - action: "screenshot"
+        checkpoint: "main-window"

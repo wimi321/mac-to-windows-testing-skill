@@ -1,0 +1,59 @@
+version: 1
+project:
+  name: "Windows UI clean fixture"
+  repository: "https://github.com/wimi321/mac-to-windows-testing-skill"
+  windowsWorkspace: "C:\\MacToWindowsTesting\\mac-to-windows-testing-skill"
+  artifact: "fixtures\\windows-ui-fixture\\FixtureApp.ps1"
+commands:
+  build: "powershell.exe -NoProfile -Command \"$ErrorActionPreference='Stop'; [void][System.Management.Automation.Language.Parser]::ParseFile('fixtures\\windows-ui-fixture\\FixtureApp.ps1',[ref]$null,[ref]$null)\""
+  test: "powershell.exe -NoProfile -Command \"Write-Output fixture-ready\""
+  launch: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File fixtures\\windows-ui-fixture\\FixtureApp.ps1 -Mode clean"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+scenarios:
+  - id: "clean-window"
+    title: "Clean fixture remains usable"
+    window:
+      automationId: "FixtureMainWindow"
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "wait"
+        seconds: 1
+      - action: "assert"
+        target:
+          automationId: "PrimaryAction"
+          controlType: "Button"
+        otherTarget:
+          automationId: "SecondaryAction"
+          controlType: "Button"
+        condition: "noOverlap"
+      - action: "assert"
+        target:
+          automationId: "OffscreenAction"
+          controlType: "Button"
+        condition: "withinWindow"
+      - action: "assert"
+        target:
+          automationId: "ExpectedEnabledAction"
+          controlType: "Button"
+        condition: "enabled"
+      - action: "click"
+        target:
+          automationId: "ResponseAction"
+          controlType: "Button"
+      - action: "assert"
+        target:
+          automationId: "ResponseStatus"
+          controlType: "Text"
+        condition: "textEquals"
+        value: "Completed"
+      - action: "assert"
+        target:
+          automationId: "ContentReady"
+          controlType: "Text"
+        condition: "exists"
+      - action: "screenshot"
+        checkpoint: "clean"

@@ -1,0 +1,25 @@
+version: 1
+project:
+  name: ".NET desktop app"
+  repository: "https://github.com/example/dotnet-app"
+  windowsWorkspace: "C:\\MacToWindowsTesting\\dotnet-app"
+  artifact: "bin\\Release\\net8.0-windows\\win-x64\\publish\\DotnetApp.exe"
+commands:
+  build: "dotnet.exe publish -c Release -r win-x64"
+  test: "dotnet.exe test -c Release"
+  launch: "bin\\Release\\net8.0-windows\\win-x64\\publish\\DotnetApp.exe"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+scenarios:
+  - id: "dotnet-main"
+    title: ".NET main window"
+    window:
+      name: ".NET App"
+    steps:
+      - action: "wait"
+        seconds: 2
+      - action: "screenshot"
+        checkpoint: "main-window"

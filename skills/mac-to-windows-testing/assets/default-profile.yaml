@@ -1,0 +1,33 @@
+version: 1
+project:
+  name: "replace-me"
+  repository: "https://github.com/owner/repository"
+  windowsWorkspace: "C:\\Users\\Public\\MacToWindowsTesting\\replace-me"
+  artifact: "dist\\ReplaceMe.exe"
+commands:
+  build: "replace with the verified Windows build command"
+  test: "replace with the verified Windows test command"
+  launch: "dist\\ReplaceMe.exe"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+  keepApplicationRunning: false
+scenarios:
+  - id: "main-window"
+    title: "Main window opens and remains usable"
+    window:
+      name: "Replace Me"
+    steps:
+      - action: "wait"
+        seconds: 2
+      - action: "discover"
+        checkpoint: "interaction-map"
+      - action: "assert"
+        target:
+          controlType: "Window"
+          name: "Replace Me"
+        condition: "exists"
+      - action: "screenshot"
+        checkpoint: "main-window"

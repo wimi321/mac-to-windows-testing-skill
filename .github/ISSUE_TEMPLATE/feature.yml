@@ -1,0 +1,18 @@
+name: Feature request
+description: Propose a transport, framework, assertion, or evidence improvement.
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Describe the Windows validation gap, not only the desired implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Evidence-based acceptance criteria
+    validations:
+      required: true

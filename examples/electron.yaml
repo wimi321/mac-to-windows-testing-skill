@@ -1,0 +1,25 @@
+version: 1
+project:
+  name: "Electron desktop app"
+  repository: "https://github.com/example/electron-app"
+  windowsWorkspace: "C:\\MacToWindowsTesting\\electron-app"
+  artifact: "dist\\win-unpacked\\Electron App.exe"
+commands:
+  build: "npm.cmd ci && npm.cmd run build:win"
+  test: "npm.cmd test"
+  launch: "\"dist\\win-unpacked\\Electron App.exe\""
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.85
+  allowDestructiveActions: false
+scenarios:
+  - id: "electron-main"
+    title: "Electron first paint"
+    window:
+      name: "Electron App"
+    steps:
+      - action: "wait"
+        seconds: 2
+      - action: "screenshot"
+        checkpoint: "first-paint"
