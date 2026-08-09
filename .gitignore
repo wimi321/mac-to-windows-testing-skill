@@ -7,5 +7,5 @@ __pycache__/
 .mac-to-windows-testing/
 dist/
 build/
-reports/
+/reports/
 *.log
