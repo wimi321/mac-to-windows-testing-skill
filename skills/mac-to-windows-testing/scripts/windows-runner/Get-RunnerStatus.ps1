@@ -9,8 +9,8 @@ try {
 }
 catch { $session = [pscustomobject]@{ Status = 'UNKNOWN'; Blocker = $_.Exception.Message } }
 [pscustomobject]@{
-    status = if ($task) { 'INSTALLED' } else { 'NOT_INSTALLED' }
-    taskState = if ($task) { [string]$task.State } else { $null }
+    status = $(if ($task) { 'INSTALLED' } else { 'NOT_INSTALLED' })
+    taskState = $(if ($task) { [string]$task.State } else { $null })
     root = $RunnerRoot
     session = $session
 } | ConvertTo-Json -Depth 6 -Compress

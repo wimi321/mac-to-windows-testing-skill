@@ -54,11 +54,11 @@ function Get-M2WSessionState {
         Locked = [bool]$logonUi
         SessionId = $sessionId
         ScreenCount = $screens.Count
-        Status = if ($blocked) { 'BLOCKED' } else { 'READY' }
-        Blocker = if (-not $interactive) { 'BLOCKED_NON_INTERACTIVE_SESSION' }
+        Status = $(if ($blocked) { 'BLOCKED' } else { 'READY' })
+        Blocker = $(if (-not $interactive) { 'BLOCKED_NON_INTERACTIVE_SESSION' }
             elseif ($logonUi) { 'BLOCKED_DESKTOP_LOCKED' }
             elseif ($screens.Count -eq 0) { 'BLOCKED_NO_DISPLAY' }
-            else { $null }
+            else { $null })
     }
 }
 
@@ -200,16 +200,25 @@ function Find-M2WElement {
 function Convert-M2WElement {
     param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Element)
     try { $bounds = $Element.Current.BoundingRectangle } catch { $bounds = [System.Windows.Rect]::Empty }
+    $name = ''; try { $name = $Element.Current.Name } catch { }
+    $automationId = ''; try { $automationId = $Element.Current.AutomationId } catch { }
+    $controlType = ''; try { $controlType = $Element.Current.ControlType.ProgrammaticName.Replace('ControlType.', '') } catch { }
+    $className = ''; try { $className = $Element.Current.ClassName } catch { }
+    $isEnabled = $false; try { $isEnabled = $Element.Current.IsEnabled } catch { }
+    $isOffscreen = $true; try { $isOffscreen = $Element.Current.IsOffscreen } catch { }
+    $isKeyboardFocusable = $false; try { $isKeyboardFocusable = $Element.Current.IsKeyboardFocusable } catch { }
+    $hasKeyboardFocus = $false; try { $hasKeyboardFocus = $Element.Current.HasKeyboardFocus } catch { }
+    $processId = 0; try { $processId = $Element.Current.ProcessId } catch { }
     return [pscustomobject]@{
-        Name = try { $Element.Current.Name } catch { '' }
-        AutomationId = try { $Element.Current.AutomationId } catch { '' }
-        ControlType = try { $Element.Current.ControlType.ProgrammaticName.Replace('ControlType.', '') } catch { '' }
-        ClassName = try { $Element.Current.ClassName } catch { '' }
-        IsEnabled = try { $Element.Current.IsEnabled } catch { $false }
-        IsOffscreen = try { $Element.Current.IsOffscreen } catch { $true }
-        IsKeyboardFocusable = try { $Element.Current.IsKeyboardFocusable } catch { $false }
-        HasKeyboardFocus = try { $Element.Current.HasKeyboardFocus } catch { $false }
-        ProcessId = try { $Element.Current.ProcessId } catch { 0 }
+        Name = $name
+        AutomationId = $automationId
+        ControlType = $controlType
+        ClassName = $className
+        IsEnabled = $isEnabled
+        IsOffscreen = $isOffscreen
+        IsKeyboardFocusable = $isKeyboardFocusable
+        HasKeyboardFocus = $hasKeyboardFocus
+        ProcessId = $processId
         Bounds = [pscustomobject]@{
             X = [int][Math]::Round($bounds.X)
             Y = [int][Math]::Round($bounds.Y)
@@ -277,7 +286,7 @@ function Export-M2WInteractionGraph {
             Offscreen = $_.IsOffscreen
             KeyboardFocusable = $_.IsKeyboardFocusable
             Dangerous = $dangerous
-            SuggestedAction = if ($dangerous) { 'skip' } elseif ($_.ControlType -eq 'Edit') { 'inspect' } else { 'invoke' }
+            SuggestedAction = $(if ($dangerous) { 'skip' } elseif ($_.ControlType -eq 'Edit') { 'inspect' } else { 'invoke' })
         }
     })
     $graph = [pscustomobject]@{
@@ -391,8 +400,8 @@ function Test-M2WAssertion {
     $condition = [string](Get-M2WValue -Object $Step -Name 'condition' -Default 'exists')
     $element = Find-M2WElement -Target $target -Root $Window -TimeoutSeconds 5
     switch ($condition) {
-        'exists' { return [pscustomobject]@{ Passed = [bool]$element; Detail = if ($element) { 'Element exists.' } else { 'Element not found.' } } }
-        'notExists' { return [pscustomobject]@{ Passed = -not $element; Detail = if ($element) { 'Unexpected element exists.' } else { 'Element is absent.' } } }
+        'exists' { return [pscustomobject]@{ Passed = [bool]$element; Detail = $(if ($element) { 'Element exists.' } else { 'Element not found.' }) } }
+        'notExists' { return [pscustomobject]@{ Passed = -not $element; Detail = $(if ($element) { 'Unexpected element exists.' } else { 'Element is absent.' }) } }
         'enabled' { return [pscustomobject]@{ Passed = [bool]($element -and $element.Current.IsEnabled); Detail = 'Checked enabled state.' } }
         'focusable' { return [pscustomobject]@{ Passed = [bool]($element -and $element.Current.IsKeyboardFocusable); Detail = 'Checked keyboard focusability.' } }
         'focused' { return [pscustomobject]@{ Passed = [bool]($element -and $element.Current.HasKeyboardFocus); Detail = 'Checked keyboard focus.' } }
@@ -465,7 +474,7 @@ function Invoke-M2WStep {
         }
         'assert' {
             $assertion = Test-M2WAssertion -Step $Step -Window $Window
-            return [pscustomobject]@{ Status = if ($assertion.Passed) { 'PASS' } else { 'FAIL' }; Action = $action; Summary = $assertion.Detail }
+            return [pscustomobject]@{ Status = $(if ($assertion.Passed) { 'PASS' } else { 'FAIL' }); Action = $action; Summary = $assertion.Detail }
         }
         'click' {
             $target = Get-M2WValue -Object $Step -Name 'target'

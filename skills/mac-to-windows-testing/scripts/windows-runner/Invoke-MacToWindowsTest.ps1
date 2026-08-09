@@ -31,7 +31,7 @@ function Invoke-LoggedCommand {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         return [pscustomobject]@{ Name = $Name; Status = 'FAIL'; ExitCode = $null; TimedOut = $true; DurationMs = [int]((Get-Date) - $start).TotalMilliseconds; Stdout = $stdout; Stderr = $stderr }
     }
-    return [pscustomobject]@{ Name = $Name; Status = if ($process.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }; ExitCode = $process.ExitCode; TimedOut = $false; DurationMs = [int]((Get-Date) - $start).TotalMilliseconds; Stdout = $stdout; Stderr = $stderr }
+    return [pscustomobject]@{ Name = $Name; Status = $(if ($process.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }); ExitCode = $process.ExitCode; TimedOut = $false; DurationMs = [int]((Get-Date) - $start).TotalMilliseconds; Stdout = $stdout; Stderr = $stderr }
 }
 
 function Test-TrustedManifest {
