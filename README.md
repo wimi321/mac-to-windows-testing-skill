@@ -37,6 +37,12 @@ Mac source + AI
 
 The result is always `PASS`, `FAIL`, or `BLOCKED`. Missing evidence never becomes a qualified pass.
 
+<div align="center">
+  <img src="assets/demo.gif" alt="Real Windows fixture run: defects detected, safe settings exploration, and a clean PASS regression" width="880">
+  <br>
+  <sub>Real Windows evidence at 150% scaling: intentional defects fail, safe exploration cleans up its window, and the repaired fixture passes.</sub>
+</div>
+
 ## 60-second start
 
 Install the skill for one agent:
@@ -131,6 +137,8 @@ Each run is self-contained:
 ```
 
 The repository includes a reproducible WinForms fixture with intentional clipping, overlap, off-screen placement, disabled controls, missing click response, and abnormal blank content. The companion clean mode verifies that repairs do not create false positives. CI validates the controller, schemas, installers and PowerShell syntax; **CI is deliberately not presented as real desktop acceptance**.
+
+On the bundled six-defect fixture benchmark, the real Windows run detected all six expected defects with no unexpected finding, then passed the clean regression. This is a reproducible fixture result, not a claim of universal visual-model accuracy. See the [sanitized evidence report](examples/reports/windows-fixture-150-percent.md).
 
 ## Safe by default
 

@@ -650,6 +650,51 @@ function Convert-M2WGraphBoundsToRect {
     )
 }
 
+function Test-M2WExpectedCompositeOverlap {
+    param(
+        [Parameter(Mandatory)]$First,
+        [Parameter(Mandatory)]$Second,
+        [int]$TolerancePixels = 2
+    )
+    $firstType = [string](Get-M2WValue -Object $First -Name 'ControlType')
+    $secondType = [string](Get-M2WValue -Object $Second -Name 'ControlType')
+    $firstBounds = Convert-M2WGraphBoundsToRect -Bounds $First.Bounds
+    $secondBounds = Convert-M2WGraphBoundsToRect -Bounds $Second.Bounds
+
+    if ($firstType -eq 'Button' -and $secondType -eq 'Button') {
+        $smallButtons = $firstBounds.Width -le 32 -and $secondBounds.Width -le 32 -and
+            $firstBounds.Height -le 32 -and $secondBounds.Height -le 32
+        $sameColumn = [Math]::Abs($firstBounds.X - $secondBounds.X) -le $TolerancePixels -and
+            [Math]::Abs($firstBounds.Width - $secondBounds.Width) -le $TolerancePixels
+        $verticalJoin = [Math]::Min(
+            [Math]::Abs($firstBounds.Bottom - $secondBounds.Top),
+            [Math]::Abs($secondBounds.Bottom - $firstBounds.Top)
+        ) -le $TolerancePixels
+        if ($smallButtons -and $sameColumn -and $verticalJoin) { return $true }
+    }
+
+    $button = $null
+    $editor = $null
+    if ($firstType -eq 'Button' -and $secondType -eq 'Edit') {
+        $button = $firstBounds
+        $editor = $secondBounds
+    }
+    elseif ($firstType -eq 'Edit' -and $secondType -eq 'Button') {
+        $button = $secondBounds
+        $editor = $firstBounds
+    }
+    if ($button -and $editor) {
+        $rightSideWidth = [Math]::Max(32, [Math]::Min(48, $editor.Width * 0.45))
+        $narrowButton = $button.Width -le 32 -and $button.Height -le ($editor.Height + $TolerancePixels)
+        $atEditorRight = $button.Left -ge ($editor.Right - $rightSideWidth) -and
+            $button.Right -le ($editor.Right + $TolerancePixels)
+        $verticallyAligned = $button.Bottom -ge ($editor.Top - $TolerancePixels) -and
+            $button.Top -le ($editor.Bottom + $TolerancePixels)
+        if ($narrowButton -and $atEditorRight -and $verticallyAligned) { return $true }
+    }
+    return $false
+}
+
 function Export-M2WDeterministicAudit {
     param(
         [Parameter(Mandatory)]$Graph,
@@ -708,6 +753,7 @@ function Export-M2WDeterministicAudit {
                 -First (Convert-M2WGraphBoundsToRect -Bounds $first.Bounds) `
                 -Second (Convert-M2WGraphBoundsToRect -Bounds $second.Bounds)
             if ($area -le ($TolerancePixels * $TolerancePixels)) { continue }
+            if (Test-M2WExpectedCompositeOverlap -First $first -Second $second -TolerancePixels $TolerancePixels) { continue }
             $findings.Add([pscustomobject]@{
                 Code = 'ACTIONABLE_OVERLAP'; Severity = 'error'; NodeId = $first.Id
                 OtherNodeId = $second.Id; Detail = "Sibling actionable controls overlap by $area pixel(s)."

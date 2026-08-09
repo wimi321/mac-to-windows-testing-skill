@@ -77,10 +77,13 @@ try {
         Root = [pscustomobject]@{ ClassName = 'FixtureWindow'; Bounds = [pscustomobject]@{ X = 0; Y = 0; Width = 300; Height = 200 } }
         Providers = [pscustomobject]@{ JavaAccessBridge = [pscustomobject]@{ Status = 'UNAVAILABLE'; Actionable = 0 } }
         Nodes = @(
-            [pscustomobject]@{ Id = 'missing'; Provider = 'UIAutomation'; Parent = 'root'; Name = ''; Offscreen = $false; Bounds = [pscustomobject]@{ X = 10; Y = 10; Width = 80; Height = 30 } },
-            [pscustomobject]@{ Id = 'overlap-a'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'A'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 100; Y = 20; Width = 80; Height = 40 } },
-            [pscustomobject]@{ Id = 'overlap-b'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'B'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 140; Y = 30; Width = 80; Height = 40 } },
-            [pscustomobject]@{ Id = 'outside'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'Outside'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 280; Y = 160; Width = 60; Height = 50 } }
+            [pscustomobject]@{ Id = 'missing'; Provider = 'UIAutomation'; Parent = 'root'; Name = ''; ControlType = 'Button'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 10; Y = 10; Width = 80; Height = 30 } },
+            [pscustomobject]@{ Id = 'overlap-a'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'A'; ControlType = 'Button'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 100; Y = 20; Width = 80; Height = 40 } },
+            [pscustomobject]@{ Id = 'overlap-b'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'B'; ControlType = 'Button'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 140; Y = 30; Width = 80; Height = 40 } },
+            [pscustomobject]@{ Id = 'outside'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'Outside'; ControlType = 'Button'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 280; Y = 160; Width = 60; Height = 50 } },
+            [pscustomobject]@{ Id = 'spinner-edit'; Provider = 'UIAutomation'; Parent = 'spinner'; Name = 'Komi'; ControlType = 'Edit'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 210; Y = 80; Width = 72; Height = 28 } },
+            [pscustomobject]@{ Id = 'spinner-up'; Provider = 'UIAutomation'; Parent = 'spinner'; Name = 'Increase'; ControlType = 'Button'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 262; Y = 78; Width = 22; Height = 16 } },
+            [pscustomobject]@{ Id = 'spinner-down'; Provider = 'UIAutomation'; Parent = 'spinner'; Name = 'Decrease'; ControlType = 'Button'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 262; Y = 93; Width = 22; Height = 16 } }
         )
     }
     $auditPath = Join-Path $auditRoot 'audit.json'
@@ -89,6 +92,10 @@ try {
     foreach ($expected in @('MISSING_ACCESSIBLE_NAME', 'OUTSIDE_WINDOW', 'ACTIONABLE_OVERLAP')) {
         if ($codes -notcontains $expected) { throw "Deterministic audit missed $expected." }
     }
+    $spinnerFindings = @($audit.Findings | Where-Object {
+        $_.NodeId -like 'spinner-*' -or $_.OtherNodeId -like 'spinner-*'
+    })
+    if ($spinnerFindings.Count) { throw 'Spinner buttons were reported as ordinary actionable overlap.' }
     if ($audit.Status -ne 'FAIL') { throw 'Configured deterministic audit findings did not fail.' }
 }
 finally {

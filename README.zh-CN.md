@@ -37,6 +37,12 @@ Mac 源码 + AI
 
 最终结果只能是 `PASS`、`FAIL` 或 `BLOCKED`。证据不足绝不会包装成“基本通过”。
 
+<div align="center">
+  <img src="assets/demo.gif" alt="真实 Windows Fixture 验收：发现缺陷、安全探索设置窗口、修复后完整回归通过" width="880">
+  <br>
+  <sub>150% 缩放下的 Windows 原生证据：故障模式正确失败，安全探索会清理新窗口，修复后的干净模式通过。</sub>
+</div>
+
 ## 60 秒开始
 
 先安装到一个 AI 客户端：
@@ -131,6 +137,8 @@ UU CLI 可以发现设备、发起连接和打开远程终端，但不能被误�
 ```
 
 仓库内置一个可重复的 WinForms 故障程序，稳定制造文字裁切、控件重叠、越界、禁用、点击无响应和异常空白；干净模式用于验证修复后没有误报。CI 只验证控制器、Schema、安装脚本和 PowerShell 语法，**不会冒充真实 Windows UI 验收**。
+
+在内置的六缺陷基准中，真实 Windows 验收命中了全部 6 项预设缺陷，没有产生额外误报，并在干净模式回归中通过。该数据只代表可复现 Fixture，不代表所有软件上的通用视觉准确率。详见[脱敏证据报告](examples/reports/windows-fixture-150-percent.md)。
 
 ## 默认安全
 
