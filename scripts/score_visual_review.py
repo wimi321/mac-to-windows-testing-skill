@@ -13,8 +13,8 @@ def main() -> int:
     parser.add_argument('--review', required=True)
     parser.add_argument('--ground-truth', default='tests/fixtures/visual-ground-truth.json')
     args = parser.parse_args()
-    truth = json.loads(pathlib.Path(args.ground_truth).read_text(encoding='utf-8'))
-    review = json.loads(pathlib.Path(args.review).read_text(encoding='utf-8'))
+    truth = json.loads(pathlib.Path(args.ground_truth).read_text(encoding='utf-8-sig'))
+    review = json.loads(pathlib.Path(args.review).read_text(encoding='utf-8-sig'))
     expected = set(truth['expected'])
     observed = {str(item.get('checkpoint', '')) for item in review.get('findings', [])}
     true_positive = len(expected & observed)

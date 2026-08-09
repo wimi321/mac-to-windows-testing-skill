@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -62,6 +64,29 @@ class ControllerTests(unittest.TestCase):
             M2W.dump_json(run / 'review.json', {'runId': 'r3', 'status': 'PASS', 'confidence': 1, 'findings': []})
             final = M2W.finalize_result(run / 'result.json', run / 'review.json')
             self.assertEqual('FAIL', final['status'])
+
+    def test_windows_utf8_bom_evidence_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            review_path = pathlib.Path(temporary) / 'ai-review.json'
+            review = {
+                'runId': 'windows-bom',
+                'status': 'FAIL',
+                'confidence': 0.99,
+                'findings': [
+                    {'checkpoint': checkpoint, 'screenshot': f'screenshots/{checkpoint}.png'}
+                    for checkpoint in ('clipped', 'overlap', 'offscreen', 'disabled', 'unresponsive', 'blank')
+                ],
+            }
+            review_path.write_text('\ufeff' + json.dumps(review), encoding='utf-8')
+            self.assertEqual('windows-bom', M2W.load_json(review_path)['runId'])
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / 'scripts' / 'score_visual_review.py'), '--review', str(review_path)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr or completed.stdout)
 
     def test_schemas_are_valid_json(self) -> None:
         for path in sorted((ROOT / 'schemas').glob('*.json')):
