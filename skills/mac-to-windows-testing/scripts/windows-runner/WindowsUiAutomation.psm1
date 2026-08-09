@@ -49,9 +49,43 @@ namespace M2W {
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint attachTo, bool value);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr window);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     public const uint LEFTDOWN = 0x0002;
     public const uint LEFTUP = 0x0004;
     public const int SW_RESTORE = 9;
+
+    public static bool ActivateWindow(IntPtr window) {
+      if (window == IntPtr.Zero) { return false; }
+      IntPtr foreground = GetForegroundWindow();
+      uint ignored;
+      uint currentThread = GetCurrentThreadId();
+      uint foregroundThread = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, out ignored);
+      uint targetThread = GetWindowThreadProcessId(window, out ignored);
+      bool attachedForeground = false;
+      bool attachedTarget = false;
+      try {
+        if (foregroundThread != 0 && foregroundThread != currentThread) {
+          attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+        }
+        if (targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread) {
+          attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+        }
+        ShowWindowAsync(window, SW_RESTORE);
+        BringWindowToTop(window);
+        bool activated = SetForegroundWindow(window);
+        SetFocus(window);
+        return activated || GetForegroundWindow() == window;
+      }
+      finally {
+        if (attachedTarget) { AttachThreadInput(currentThread, targetThread, false); }
+        if (attachedForeground) { AttachThreadInput(currentThread, foregroundThread, false); }
+      }
+    }
   }
 }
 '@
@@ -430,8 +464,9 @@ function Invoke-M2WUnifiedClick {
     }
     $windowHandle = Get-M2WRootNativeHandle -Root $Match.Root
     if ($windowHandle -ne [IntPtr]::Zero) {
-        [M2W.NativeMethods]::ShowWindowAsync($windowHandle, [M2W.NativeMethods]::SW_RESTORE) | Out-Null
-        [M2W.NativeMethods]::SetForegroundWindow($windowHandle) | Out-Null
+        if (-not [M2W.NativeMethods]::ActivateWindow($windowHandle)) {
+            throw 'Unable to activate the Java target window before clicking.'
+        }
         Start-Sleep -Milliseconds 120
     }
     $bounds = Get-M2WUnifiedBounds -Match $Match
