@@ -1,0 +1,34 @@
+version: 1
+project:
+  name: "LizzieYzy Next"
+  repository: "https://github.com/wimi321/lizzieyzy-next"
+  windowsWorkspace: "%USERPROFILE%\\source\\repos\\lizzieyzy-next"
+  artifact: "target\\lizzie-yzy2.5.3-shaded.jar"
+commands:
+  build: "mvn.cmd -B -Dfmt.skip=true -DskipTests package"
+  test: "mvn.cmd -B -Dfmt.skip=true test"
+  launch: "javaw.exe -jar target\\lizzie-yzy2.5.3-shaded.jar"
+automation:
+  transport: "ssh"
+  repairLimit: 3
+  visualConfidenceThreshold: 0.9
+  allowDestructiveActions: false
+  keepApplicationRunning: false
+scenarios:
+  - id: "main-window"
+    title: "Main window opens and exposes a stable interaction graph"
+    window:
+      nameContains: "LizzieYzy Next"
+      controlType: "Window"
+    steps:
+      - action: "wait"
+        seconds: 8
+      - action: "discover"
+        checkpoint: "main-interaction-map"
+      - action: "assert"
+        target:
+          nameContains: "LizzieYzy Next"
+          controlType: "Window"
+        condition: "visible"
+      - action: "screenshot"
+        checkpoint: "main-window"

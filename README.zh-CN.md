@@ -90,6 +90,7 @@ UU CLI 可以发现设备、发起连接和打开远程终端，但不能被误�
 
 [`examples/`](examples/) 提供可直接改造的配置：
 
+- LizzieYzy Next：真实大型 Swing 应用样例，覆盖动态标题匹配和交互图发现。
 - Java Swing：内置 JVM、弹窗层级、菜单、EDT 响应、字体和 DPI。
 - Electron：首帧、渲染/GPU 进程、原生弹窗和打包资源路径。
 - Tauri：WebView2、原生命令、文件对话框、窗口装饰和更新器。
