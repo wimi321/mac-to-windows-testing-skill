@@ -29,10 +29,23 @@ $deleteAccountChinese = -join ([char]0x5220, [char]0x9664, [char]0x8d26, [char]0
 if (-not (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = $deleteAccountChinese }))) { throw 'Localized danger classifier test failed.' }
 if (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Open settings' })) { throw 'Safe control was misclassified.' }
 
-$exitProbe = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', 'exit 0') -PassThru
-if (-not $exitProbe.WaitForExit(10000)) { throw 'Process exit-code probe timed out.' }
+$probeInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$probeInfo.FileName = 'cmd.exe'
+$probeInfo.Arguments = '/d /c "echo probe-output & exit 7"'
+$probeInfo.UseShellExecute = $false
+$probeInfo.CreateNoWindow = $true
+$probeInfo.RedirectStandardOutput = $true
+$probeInfo.RedirectStandardError = $true
+$exitProbe = [System.Diagnostics.Process]::new()
+$exitProbe.StartInfo = $probeInfo
+[void]$exitProbe.Start()
+$probeOutput = $exitProbe.StandardOutput.ReadToEndAsync()
+$probeError = $exitProbe.StandardError.ReadToEndAsync()
+if (-not $exitProbe.WaitForExit(10000)) { throw 'Redirected process exit-code probe timed out.' }
 $exitProbe.WaitForExit()
 $exitProbe.Refresh()
-if ($exitProbe.ExitCode -ne 0) { throw 'Process exit code was not synchronized.' }
+if ($exitProbe.ExitCode -ne 7) { throw 'Redirected process exit code was not synchronized.' }
+if ($probeOutput.GetAwaiter().GetResult().Trim() -ne 'probe-output') { throw 'Redirected stdout was not captured.' }
+if ($probeError.GetAwaiter().GetResult()) { throw 'Redirected stderr was unexpectedly populated.' }
 
 Write-Output "Validated $($files.Count) PowerShell files."

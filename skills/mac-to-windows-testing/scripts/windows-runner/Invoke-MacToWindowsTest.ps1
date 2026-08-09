@@ -25,14 +25,35 @@ function Invoke-LoggedCommand {
     $start = Get-Date
     $stdout = "$LogPath.stdout.log"
     $stderr = "$LogPath.stderr.log"
-    $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', $Command) `
-        -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'cmd.exe'
+    $startInfo.Arguments = @('/d', '/s', '/c', $Command) -join ' '
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $completed = $process.WaitForExit($TimeoutSeconds * 1000)
+    if (-not $completed) {
+        Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID', [string]$process.Id, '/T', '/F') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+        try { $process.WaitForExit() } catch { }
+    }
+
+    $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+    $stderrText = $stderrTask.GetAwaiter().GetResult()
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllText($stdout, $stdoutText, $utf8)
+    [IO.File]::WriteAllText($stderr, $stderrText, $utf8)
+
+    if (-not $completed) {
         return [pscustomobject]@{ Name = $Name; Status = 'FAIL'; ExitCode = $null; TimedOut = $true; DurationMs = [int]((Get-Date) - $start).TotalMilliseconds; Stdout = $stdout; Stderr = $stderr }
     }
-    # PowerShell 5.1 can leave ExitCode unset after the timed overload, especially with redirected IO.
-    $process.WaitForExit()
     $process.Refresh()
     $exitCode = $process.ExitCode
     return [pscustomobject]@{ Name = $Name; Status = $(if ($exitCode -eq 0) { 'PASS' } else { 'FAIL' }); ExitCode = $exitCode; TimedOut = $false; DurationMs = [int]((Get-Date) - $start).TotalMilliseconds; Stdout = $stdout; Stderr = $stderr }
