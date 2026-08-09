@@ -27,6 +27,8 @@ if ([M2W.JavaAccessBridgeClient]::ContextInfoSize -ne 6188) {
 
 $uiAutomationModule = Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force -PassThru
 Initialize-M2WUiAutomation
+if (-not [M2W.NativeMethods].GetMethod('SetForegroundWindow')) { throw 'Native foreground activation is unavailable.' }
+if (-not [M2W.NativeMethods].GetMethod('ShowWindowAsync')) { throw 'Native window restore is unavailable.' }
 $first = [System.Windows.Rect]::new(0, 0, 100, 100)
 $second = [System.Windows.Rect]::new(50, 50, 100, 100)
 if ((Get-M2WRectOverlapArea -First $first -Second $second) -ne 2500) { throw 'Overlap geometry test failed.' }

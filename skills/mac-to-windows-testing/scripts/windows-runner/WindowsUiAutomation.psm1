@@ -47,8 +47,11 @@ namespace M2W {
   public static class NativeMethods {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
     public const uint LEFTDOWN = 0x0002;
     public const uint LEFTUP = 0x0004;
+    public const int SW_RESTORE = 9;
   }
 }
 '@
@@ -391,11 +394,11 @@ function Find-M2WUnifiedElement {
     $uiaTimeout = if (Test-M2WJavaUiRoot -Root $Root) { [Math]::Min(1, $TimeoutSeconds) } else { $TimeoutSeconds }
     $element = Find-M2WElement -Target $Target -Root $Root -TimeoutSeconds $uiaTimeout
     if ($element) {
-        return [pscustomobject]@{ Provider = 'UIAutomation'; Element = $element; Node = $null }
+        return [pscustomobject]@{ Provider = 'UIAutomation'; Element = $element; Node = $null; Root = $Root }
     }
     $node = Find-M2WJavaElement -Target $Target -Root $Root -TimeoutSeconds $TimeoutSeconds
     if ($node) {
-        return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Element = $null; Node = $node }
+        return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Element = $null; Node = $node; Root = $Root }
     }
     return $null
 }
@@ -424,6 +427,12 @@ function Invoke-M2WUnifiedClick {
     if ($Match.Provider -eq 'UIAutomation') {
         Invoke-M2WElementClick -Element $Match.Element
         return
+    }
+    $windowHandle = Get-M2WRootNativeHandle -Root $Match.Root
+    if ($windowHandle -ne [IntPtr]::Zero) {
+        [M2W.NativeMethods]::ShowWindowAsync($windowHandle, [M2W.NativeMethods]::SW_RESTORE) | Out-Null
+        [M2W.NativeMethods]::SetForegroundWindow($windowHandle) | Out-Null
+        Start-Sleep -Milliseconds 120
     }
     $bounds = Get-M2WUnifiedBounds -Match $Match
     if ($bounds.Width -le 0 -or $bounds.Height -le 0 -or $Match.Node.Offscreen) {
