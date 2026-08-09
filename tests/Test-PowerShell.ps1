@@ -19,6 +19,7 @@ foreach ($file in $files) {
 if ($failed) { exit 1 }
 
 Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force
+Initialize-M2WUiAutomation
 $first = [System.Windows.Rect]::new(0, 0, 100, 100)
 $second = [System.Windows.Rect]::new(50, 50, 100, 100)
 if ((Get-M2WRectOverlapArea -First $first -Second $second) -ne 2500) { throw 'Overlap geometry test failed.' }

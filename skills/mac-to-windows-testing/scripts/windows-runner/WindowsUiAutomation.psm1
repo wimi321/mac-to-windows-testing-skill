@@ -16,6 +16,7 @@ function Initialize-M2WUiAutomation {
     if ($env:OS -ne 'Windows_NT') {
         throw 'Windows UI Automation is available only on Windows.'
     }
+    Add-Type -AssemblyName WindowsBase
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     Add-Type -AssemblyName System.Windows.Forms
