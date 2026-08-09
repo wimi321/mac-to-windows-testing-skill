@@ -88,7 +88,7 @@ try {
     $secondSha = 'b' * 64
     & $trustScript -RunnerRoot $trustRoot -ProfileSha256 $firstSha -Repository 'https://example.test/one' | Out-Null
     & $trustScript -RunnerRoot $trustRoot -ProfileSha256 $secondSha -Repository 'https://example.test/two' | Out-Null
-    $trustedProfiles = Get-Content -LiteralPath (Join-Path $trustRoot 'trusted-profiles.json') -Raw | ConvertFrom-Json
+    $trustedProfiles = Get-Content -LiteralPath (Join-Path $trustRoot 'trusted-profiles.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if (@($trustedProfiles).Count -ne 2) { throw 'Trusted profile registry did not retain two flat entries.' }
     if (@($trustedProfiles | Where-Object { -not $_.PSObject.Properties['profileSha256'] }).Count) { throw 'Trusted profile registry contains a wrapped or invalid entry.' }
 }
