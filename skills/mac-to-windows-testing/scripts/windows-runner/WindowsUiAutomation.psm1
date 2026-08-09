@@ -340,7 +340,7 @@ function Save-M2WScreenshot {
 
 function Invoke-M2WPhysicalClick {
     param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Element)
-    $point = [System.Windows.Point]::new()
+    $point = [System.Windows.Point]::new(0, 0)
     if (-not $Element.TryGetClickablePoint([ref]$point)) {
         $bounds = $Element.Current.BoundingRectangle
         $point = [System.Windows.Point]::new($bounds.X + ($bounds.Width / 2), $bounds.Y + ($bounds.Height / 2))
