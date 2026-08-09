@@ -752,7 +752,26 @@ function Get-M2WSafeControlCategory {
     return $null
 }
 
-function Get-M2WTopLevelWindowsForProcess {
+function Get-M2WWindowIdentity {
+    param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Window)
+    try {
+        $handle = [int64]$Window.Current.NativeWindowHandle
+        if ($handle -ne 0) { return "handle:$handle" }
+    }
+    catch { }
+    try {
+        $runtimeId = @($Window.GetRuntimeId())
+        if ($runtimeId.Count) { return "runtime:$($runtimeId -join '.')" }
+    }
+    catch { }
+    try {
+        $bounds = $Window.Current.BoundingRectangle
+        return "fallback:$($Window.Current.ProcessId):$($Window.Current.Name):$([int]$bounds.X):$([int]$bounds.Y):$([int]$bounds.Width):$([int]$bounds.Height)"
+    }
+    catch { return "unavailable:$([Guid]::NewGuid().ToString('N'))" }
+}
+
+function Get-M2WVisibleWindowsForProcess {
     param([Parameter(Mandatory)][int]$ProcessId)
     [System.Windows.Automation.Condition[]]$conditions = @(
         [System.Windows.Automation.PropertyCondition]::new(
@@ -767,9 +786,15 @@ function Get-M2WTopLevelWindowsForProcess {
     $condition = [System.Windows.Automation.AndCondition]::new($conditions)
     try {
         return @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-            [System.Windows.Automation.TreeScope]::Children,
+            [System.Windows.Automation.TreeScope]::Descendants,
             $condition
-        ))
+        ) | Where-Object {
+            try {
+                $bounds = $_.Current.BoundingRectangle
+                -not $_.Current.IsOffscreen -and $bounds.Width -gt 0 -and $bounds.Height -gt 0
+            }
+            catch { $false }
+        })
     }
     catch { return @() }
 }
@@ -782,6 +807,23 @@ function Close-M2WExplorationWindow {
         return
     }
     try { $Window.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('%{F4}') } catch { }
+}
+
+function Wait-M2WExplorationWindowsClosed {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][string[]]$WindowIdentities,
+        [int]$TimeoutMilliseconds = 2500
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $visibleIdentities = @(Get-M2WVisibleWindowsForProcess -ProcessId $ProcessId | ForEach-Object {
+            Get-M2WWindowIdentity -Window $_
+        })
+        if (-not @($WindowIdentities | Where-Object { $visibleIdentities -contains $_ }).Count) { return $true }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $false
 }
 
 function Invoke-M2WSafeExploration {
@@ -837,11 +879,12 @@ function Invoke-M2WSafeExploration {
         $result = [ordered]@{
             Id = $node.Id; Provider = $node.Provider; Name = $node.Name; ControlType = $node.ControlType
             Category = $candidate.Category; Status = 'PASS'; InvocationMethod = $null
-            VisibleStateChanged = $false; NewWindows = @(); Evidence = $null; Error = $null
+            VisibleStateChanged = $false; NewWindows = @(); CleanupVerified = $true
+            Evidence = $null; Error = $null
         }
         try {
-            $beforeWindows = @(Get-M2WTopLevelWindowsForProcess -ProcessId $processId)
-            $beforeHandles = @($beforeWindows | ForEach-Object { [int64]$_.Current.NativeWindowHandle })
+            $beforeWindows = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId)
+            $beforeIdentities = @($beforeWindows | ForEach-Object { Get-M2WWindowIdentity -Window $_ })
             Save-M2WScreenshot -Path $beforePath -Window $Root | Out-Null
             $reportedType = Get-M2WValue -Object $node -Name 'ReportedControlType'
             $selectorType = if ($reportedType) { [string]$reportedType } else { [string]$node.ControlType }
@@ -853,10 +896,11 @@ function Invoke-M2WSafeExploration {
             $result.InvocationMethod = "$($invocation.Provider)/$($invocation.Method)"
             Start-Sleep -Milliseconds 450
 
-            $afterWindows = @(Get-M2WTopLevelWindowsForProcess -ProcessId $processId)
+            $afterWindows = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId)
             $newWindows = @($afterWindows | Where-Object {
-                $handle = [int64]$_.Current.NativeWindowHandle
-                $handle -ne [int64]$rootHandle -and $beforeHandles -notcontains $handle
+                $identity = Get-M2WWindowIdentity -Window $_
+                $handle = try { [int64]$_.Current.NativeWindowHandle } catch { 0 }
+                $handle -ne [int64]$rootHandle -and $beforeIdentities -notcontains $identity
             })
             $evidenceWindow = if ($newWindows.Count) { $newWindows[0] } else { $Root }
             Save-M2WScreenshot -Path $afterPath -Window $evidenceWindow | Out-Null
@@ -869,7 +913,15 @@ function Invoke-M2WSafeExploration {
                 BeforeScreenshot = $beforePath; AfterScreenshot = $afterPath
                 UiTree = $treePath; JavaUiTree = $trees.JavaAccessBridgePath
             }
+            $newWindowIdentities = @($newWindows | ForEach-Object { Get-M2WWindowIdentity -Window $_ })
             foreach ($window in $newWindows) { Close-M2WExplorationWindow -Window $window }
+            if ($newWindowIdentities.Count) {
+                $result.CleanupVerified = Wait-M2WExplorationWindowsClosed `
+                    -ProcessId $processId -WindowIdentities $newWindowIdentities
+                if (-not $result.CleanupVerified) {
+                    throw 'Exploration window remained visible after the automated close action.'
+                }
+            }
             if ($candidate.Category -eq 'menu' -and -not $newWindows.Count) {
                 try { $Root.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ESC}') } catch { }
             }
