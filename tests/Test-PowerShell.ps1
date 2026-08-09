@@ -29,4 +29,10 @@ $deleteAccountChinese = -join ([char]0x5220, [char]0x9664, [char]0x8d26, [char]0
 if (-not (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = $deleteAccountChinese }))) { throw 'Localized danger classifier test failed.' }
 if (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Open settings' })) { throw 'Safe control was misclassified.' }
 
+$exitProbe = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', 'exit 0') -PassThru
+if (-not $exitProbe.WaitForExit(10000)) { throw 'Process exit-code probe timed out.' }
+$exitProbe.WaitForExit()
+$exitProbe.Refresh()
+if ($exitProbe.ExitCode -ne 0) { throw 'Process exit code was not synchronized.' }
+
 Write-Output "Validated $($files.Count) PowerShell files."
