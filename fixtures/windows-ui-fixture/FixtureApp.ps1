@@ -107,7 +107,8 @@ $disabled.Enabled = $Mode -eq 'clean'
 $panel.Controls.Add($disabled)
 
 $response = [System.Windows.Forms.Label]::new()
-Set-Identity $response 'ResponseStatus' 'Response status'
+Set-Identity $response 'ResponseStatus'
+$response.AccessibleName = $null
 $response.Text = 'Waiting'
 $response.Location = [System.Drawing.Point]::new(440, 155)
 $response.Size = [System.Drawing.Size]::new(280, 30)

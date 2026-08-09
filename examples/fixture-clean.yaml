@@ -40,7 +40,7 @@ scenarios:
           name: "Update status"
       - action: "assert"
         target:
-          name: "Response status"
+          name: "Completed"
         condition: "textEquals"
         value: "Completed"
       - action: "assert"
