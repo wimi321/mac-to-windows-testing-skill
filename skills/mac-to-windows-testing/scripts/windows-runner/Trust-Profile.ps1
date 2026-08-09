@@ -6,6 +6,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+[IO.Directory]::CreateDirectory($RunnerRoot) | Out-Null
 $path = Join-Path $RunnerRoot 'trusted-profiles.json'
 $entries = [System.Collections.Generic.List[object]]::new()
 if (Test-Path -LiteralPath $path) {

@@ -112,8 +112,6 @@ if ($probeError.GetAwaiter().GetResult()) { throw 'Redirected stderr was unexpec
 
 $trustRoot = Join-Path ([IO.Path]::GetTempPath()) ("m2w-trust-" + [Guid]::NewGuid().ToString('N'))
 try {
-    [IO.Directory]::CreateDirectory($trustRoot) | Out-Null
-    '[]' | Set-Content -LiteralPath (Join-Path $trustRoot 'trusted-profiles.json') -Encoding UTF8
     $trustScript = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\Trust-Profile.ps1'
     $firstSha = 'a' * 64
     $secondSha = 'b' * 64
