@@ -72,6 +72,8 @@ Inspect every accepted PNG with the current agent's image tool. Compare the scre
 
 Write `ai-review.json` using `assets/ai-review.schema.json`. Every finding needs a screenshot, severity, concise evidence, and confidence. If confidence is below `0.85`, capture a window crop, full-screen image, and fresh tree, then retry. After three attempts, return `BLOCKED_VISUAL_UNCERTAIN`.
 
+Populate `reviewedEvidence` for every reviewed scenario with the exact native screenshot and matching UI tree recorded by that scenario. Never reuse unrelated global evidence to satisfy a scenario.
+
 Finalize the result:
 
 ```bash
@@ -86,7 +88,8 @@ python3 "$SKILL_DIR/scripts/mac2win_test.py" report --run-dir <run>
 - For `FAIL`, create a minimal reproduction from the evidence and modify only the source checkout.
 - Rerun the failed scenario first.
 - When focused validation passes, rerun the full declared suite.
-- Repeat at most three repair rounds. If the same blocker persists, return `BLOCKED_REPAIR_LIMIT` with the exact remaining evidence.
+- Compile repair runs with `--repair-round`, `--parent-run-id`, and `--phase focused|full-regression` so the chain is auditable.
+- Repeat at most three repair rounds. A focused pass is not completion-eligible. If the same blocker persists, return `BLOCKED_REPAIR_LIMIT` with the exact remaining evidence.
 
 ## Pass contract
 

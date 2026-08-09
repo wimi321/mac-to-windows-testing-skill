@@ -16,6 +16,11 @@ Commands are explicit strings executed by the Windows test account. Treat any ch
 
 Targets may use exact `name`, case-insensitive `nameContains`, `nameRegex`, `automationId`, and `controlType`. Prefer stable automation IDs or accessible names. Use `nameContains` for application titles that include a version, document, or engine name; avoid screen coordinates.
 
+Scenario actions include declared clicks, input, shortcuts and assertions plus two automatic actions:
+
+- `audit` checks accessible names, positive bounds, off-screen controls, window containment and actionable sibling overlap. `failOn` selects which finding codes fail the scenario.
+- `explore` builds an interaction graph and invokes only classified tabs, navigation, settings, details and top-level menus. Unknown and dangerous controls are never invoked. `maxControls` is limited to `1..50`.
+
 ## Run manifest
 
 The controller compiles YAML into immutable JSON containing:
@@ -26,6 +31,9 @@ The controller compiles YAML into immutable JSON containing:
 - scenario actions and assertions;
 - SHA-256 of the source profile;
 - redaction patterns and trust policy.
+- repair round, parent run and validation phase (`initial`, `focused`, or `full-regression`).
+
+Use `--repair-round`, `--parent-run-id` and `--phase` when an AI repair starts a follow-up run. A focused pass is not completion-eligible until a full-regression run passes, and the configured repair limit is enforced while compiling the manifest.
 
 ## Result states
 
@@ -33,6 +41,8 @@ The controller compiles YAML into immutable JSON containing:
 - `FAIL`: the app or a declared expectation failed with sufficient evidence.
 - `BLOCKED`: the environment or available evidence cannot support a verdict.
 - `PENDING_AI_REVIEW`: runner completed and screenshots require visual review.
+
+`READY_FOR_WINDOWS_AGENT` may appear only in `automation-handoff.json`. It is an intermediate handoff state, not a test verdict. UU Computer Use and Windows-side AI transports create this handoff instead of prematurely writing a blocked `result.json`.
 
 Common blockers include `BLOCKED_DESKTOP_LOCKED`, `BLOCKED_VISION_UNAVAILABLE`, `BLOCKED_AUTOMATION_CHANNEL`, `BLOCKED_RUNNER_NOT_INSTALLED`, and `BLOCKED_VISUAL_UNCERTAIN`.
 
@@ -51,3 +61,5 @@ Common blockers include `BLOCKED_DESKTOP_LOCKED`, `BLOCKED_VISION_UNAVAILABLE`, 
 ```
 
 Screenshots and UI trees use matching checkpoint names. A visual finding without a matching screenshot is invalid.
+
+`ai-review.json` must include `reviewedEvidence[]`. Every scenario that would contribute to a final `PASS` needs at least one explicitly reviewed native screenshot and its matching declared UI tree. A global screenshot from another scenario cannot satisfy this requirement.

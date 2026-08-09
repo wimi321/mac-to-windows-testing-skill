@@ -23,6 +23,8 @@ All responses are JSON, but some failure paths may still exit with code `0`. Par
 
 The current CLI opens connections and remote terminals. A vision-capable agent with Computer Use may operate that visible session. Otherwise combine UU for observation with SSH/WinRM or use a Windows-side AI agent.
 
+For `uu-computer-use` and `windows-agent`, `mac2win-test run` compiles the immutable manifest and writes `automation-handoff.json`. This is a ready state for the agent, not a final `BLOCKED` result. The agent must still run the Windows manifest, collect native evidence, write the AI review and finalize the verdict.
+
 ## SSH/SCP
 
 Use a standard Windows test account, Ed25519 keys, and LAN-restricted firewall rules. Never expose port 22 directly to the public internet.

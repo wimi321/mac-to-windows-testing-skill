@@ -12,9 +12,22 @@
     "createdAt": { "type": "string" },
     "finishedAt": { "type": "string" },
     "visualConfidenceThreshold": { "type": "number" },
+    "repair": {
+      "type": "object",
+      "properties": {
+        "round": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 0 },
+        "phase": { "enum": ["initial", "focused", "full-regression"] },
+        "parentRunId": { "type": ["string", "null"] }
+      },
+      "required": ["round", "limit", "phase", "parentRunId"],
+      "additionalProperties": false
+    },
     "environment": { "type": "object" },
     "scenarios": { "type": "array" },
-    "visualReview": { "type": "object" }
+    "visualReview": { "type": "object" },
+    "completionEligible": { "type": "boolean" },
+    "nextRequiredPhase": { "type": "string" }
   },
   "additionalProperties": true
 }

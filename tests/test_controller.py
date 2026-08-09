@@ -47,7 +47,7 @@ class ControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             run = pathlib.Path(temporary)
             result = {'runId': 'r1', 'status': 'PENDING_AI_REVIEW', 'visualConfidenceThreshold': 0.85, 'scenarios': []}
-            review = {'runId': 'r1', 'status': 'PASS', 'confidence': 0.99, 'findings': []}
+            review = {'runId': 'r1', 'status': 'PASS', 'confidence': 0.99, 'reviewedEvidence': [], 'findings': []}
             M2W.dump_json(run / 'result.json', result)
             M2W.dump_json(run / 'review.json', review)
             final = M2W.finalize_result(run / 'result.json', run / 'review.json')
@@ -61,8 +61,28 @@ class ControllerTests(unittest.TestCase):
             (run / 'ui-trees').mkdir()
             (run / 'screenshots' / 'main.png').write_bytes(b'png')
             (run / 'ui-trees' / 'main.json').write_text('[]', encoding='utf-8')
-            result = {'runId': 'r2', 'status': 'PENDING_AI_REVIEW', 'visualConfidenceThreshold': 0.85, 'scenarios': []}
-            review = {'runId': 'r2', 'status': 'PASS', 'confidence': 0.95, 'findings': []}
+            result = {
+                'runId': 'r2',
+                'status': 'PENDING_AI_REVIEW',
+                'visualConfidenceThreshold': 0.85,
+                'scenarios': [{
+                    'id': 'main',
+                    'status': 'PASS',
+                    'steps': [{'Evidence': {'Screenshot': 'screenshots/main.png', 'UiTree': 'ui-trees/main.json'}}],
+                }],
+            }
+            review = {
+                'runId': 'r2',
+                'status': 'PASS',
+                'confidence': 0.95,
+                'reviewedEvidence': [{
+                    'scenario': 'main',
+                    'checkpoint': 'main',
+                    'screenshot': 'screenshots/main.png',
+                    'uiTree': 'ui-trees/main.json',
+                }],
+                'findings': [],
+            }
             M2W.dump_json(run / 'result.json', result)
             M2W.dump_json(run / 'review.json', review)
             final = M2W.finalize_result(run / 'result.json', run / 'review.json')
@@ -72,9 +92,71 @@ class ControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             run = pathlib.Path(temporary)
             M2W.dump_json(run / 'result.json', {'runId': 'r3', 'status': 'FAIL', 'scenarios': []})
-            M2W.dump_json(run / 'review.json', {'runId': 'r3', 'status': 'PASS', 'confidence': 1, 'findings': []})
+            M2W.dump_json(run / 'review.json', {'runId': 'r3', 'status': 'PASS', 'confidence': 1, 'reviewedEvidence': [], 'findings': []})
             final = M2W.finalize_result(run / 'result.json', run / 'review.json')
             self.assertEqual('FAIL', final['status'])
+
+    def test_finalize_requires_every_passed_scenario_to_be_reviewed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = pathlib.Path(temporary)
+            (run / 'screenshots').mkdir()
+            (run / 'ui-trees').mkdir()
+            for name in ('one', 'two'):
+                (run / 'screenshots' / f'{name}.png').write_bytes(b'png')
+                (run / 'ui-trees' / f'{name}.json').write_text('[]', encoding='utf-8')
+            scenarios = [
+                {
+                    'id': name,
+                    'status': 'PASS',
+                    'steps': [{'Evidence': {'Screenshot': f'screenshots/{name}.png', 'UiTree': f'ui-trees/{name}.json'}}],
+                }
+                for name in ('one', 'two')
+            ]
+            M2W.dump_json(run / 'result.json', {'runId': 'r4', 'status': 'PENDING_AI_REVIEW', 'scenarios': scenarios})
+            M2W.dump_json(run / 'review.json', {
+                'runId': 'r4',
+                'status': 'PASS',
+                'confidence': 1,
+                'reviewedEvidence': [{
+                    'scenario': 'one',
+                    'checkpoint': 'one',
+                    'screenshot': 'screenshots/one.png',
+                    'uiTree': 'ui-trees/one.json',
+                }],
+                'findings': [],
+            })
+            final = M2W.finalize_result(run / 'result.json', run / 'review.json')
+            self.assertEqual('BLOCKED', final['status'])
+            self.assertEqual(['two'], final['visualReview']['missingScenarios'])
+
+    def test_profile_accepts_audit_and_safe_exploration(self) -> None:
+        profile = M2W.load_profile(ROOT / 'examples' / 'fixture-clean.yaml')
+        profile['scenarios'][0]['steps'].extend([
+            {
+                'action': 'audit',
+                'failOn': ['OUTSIDE_WINDOW', 'ACTIONABLE_OVERLAP'],
+            },
+            {'action': 'explore', 'maxControls': 8},
+        ])
+        M2W.validate_profile(profile)
+        profile['scenarios'][0]['steps'][-1]['maxControls'] = 0
+        with self.assertRaises(M2W.CliError):
+            M2W.validate_profile(profile)
+
+    def test_profile_rejects_unknown_audit_finding(self) -> None:
+        profile = M2W.load_profile(ROOT / 'examples' / 'fixture-clean.yaml')
+        profile['scenarios'][0]['steps'].append({'action': 'audit', 'failOn': ['UNKNOWN']})
+        with self.assertRaises(M2W.CliError):
+            M2W.validate_profile(profile)
+
+    def test_repair_context_enforces_limit_and_parent(self) -> None:
+        profile = M2W.load_profile(ROOT / 'examples' / 'fixture-clean.yaml')
+        context = M2W.normalize_run_context(profile, {'round': 1, 'phase': 'focused', 'parentRunId': 'r0'})
+        self.assertEqual(1, context['round'])
+        with self.assertRaises(M2W.CliError):
+            M2W.normalize_run_context(profile, {'round': 1, 'phase': 'focused'})
+        with self.assertRaises(M2W.CliError):
+            M2W.normalize_run_context(profile, {'round': 4, 'phase': 'focused', 'parentRunId': 'r0'})
 
     def test_windows_utf8_bom_evidence_is_supported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

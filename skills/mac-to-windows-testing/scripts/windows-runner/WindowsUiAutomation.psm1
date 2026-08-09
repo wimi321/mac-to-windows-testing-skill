@@ -615,6 +615,259 @@ function Export-M2WInteractionGraph {
     return $graph
 }
 
+function Convert-M2WGraphBoundsToRect {
+    param([Parameter(Mandatory)]$Bounds)
+    return [System.Windows.Rect]::new(
+        [double]$Bounds.X,
+        [double]$Bounds.Y,
+        [double]$Bounds.Width,
+        [double]$Bounds.Height
+    )
+}
+
+function Export-M2WDeterministicAudit {
+    param(
+        [Parameter(Mandatory)]$Graph,
+        [Parameter(Mandatory)][string]$Path,
+        [string[]]$FailOn = @(),
+        [int]$TolerancePixels = 2
+    )
+    $findings = [System.Collections.Generic.List[object]]::new()
+    $javaPrimary = [bool](
+        $Graph.Root.ClassName -match '^(?:SunAwt|javax\.swing|java\.awt)' -and
+        [string]$Graph.Providers.JavaAccessBridge.Status -eq 'READY' -and
+        [int]$Graph.Providers.JavaAccessBridge.Actionable -gt 0
+    )
+    $provider = if ($javaPrimary) { 'JavaAccessBridge' } else { 'UIAutomation' }
+    $nodes = @($Graph.Nodes | Where-Object { $_.Provider -eq $provider })
+    $rootBounds = Convert-M2WGraphBoundsToRect -Bounds $Graph.Root.Bounds
+
+    foreach ($node in $nodes) {
+        $bounds = Convert-M2WGraphBoundsToRect -Bounds $node.Bounds
+        if ([string]::IsNullOrWhiteSpace([string]$node.Name)) {
+            $findings.Add([pscustomobject]@{
+                Code = 'MISSING_ACCESSIBLE_NAME'; Severity = 'warning'; NodeId = $node.Id
+                OtherNodeId = $null; Detail = 'Visible actionable control has no accessible name.'; Bounds = $node.Bounds
+            })
+        }
+        if ($bounds.Width -le 0 -or $bounds.Height -le 0) {
+            $findings.Add([pscustomobject]@{
+                Code = 'NONPOSITIVE_BOUNDS'; Severity = 'error'; NodeId = $node.Id
+                OtherNodeId = $null; Detail = 'Actionable control has non-positive bounds.'; Bounds = $node.Bounds
+            })
+            continue
+        }
+        if ([bool]$node.Offscreen) {
+            $findings.Add([pscustomobject]@{
+                Code = 'OFFSCREEN_ACTION'; Severity = 'warning'; NodeId = $node.Id
+                OtherNodeId = $null; Detail = 'Actionable control is reported off screen.'; Bounds = $node.Bounds
+            })
+        }
+        elseif (-not (Test-M2WRectContained -Child $bounds -Parent $rootBounds -Tolerance $TolerancePixels)) {
+            $findings.Add([pscustomobject]@{
+                Code = 'OUTSIDE_WINDOW'; Severity = 'error'; NodeId = $node.Id
+                OtherNodeId = $null; Detail = 'Actionable control extends outside the owning window.'; Bounds = $node.Bounds
+            })
+        }
+    }
+
+    $visibleNodes = @($nodes | Where-Object {
+        -not $_.Offscreen -and $_.Bounds.Width -gt 0 -and $_.Bounds.Height -gt 0
+    })
+    for ($firstIndex = 0; $firstIndex -lt $visibleNodes.Count; $firstIndex++) {
+        $first = $visibleNodes[$firstIndex]
+        for ($secondIndex = $firstIndex + 1; $secondIndex -lt $visibleNodes.Count; $secondIndex++) {
+            $second = $visibleNodes[$secondIndex]
+            if ($first.Parent -ne $second.Parent) { continue }
+            $area = Get-M2WRectOverlapArea `
+                -First (Convert-M2WGraphBoundsToRect -Bounds $first.Bounds) `
+                -Second (Convert-M2WGraphBoundsToRect -Bounds $second.Bounds)
+            if ($area -le ($TolerancePixels * $TolerancePixels)) { continue }
+            $findings.Add([pscustomobject]@{
+                Code = 'ACTIONABLE_OVERLAP'; Severity = 'error'; NodeId = $first.Id
+                OtherNodeId = $second.Id; Detail = "Sibling actionable controls overlap by $area pixel(s)."
+                Bounds = [pscustomobject]@{ First = $first.Bounds; Second = $second.Bounds }
+            })
+        }
+    }
+
+    $blocking = @($findings | Where-Object { $FailOn -contains $_.Code })
+    $audit = [pscustomobject]@{
+        CreatedAt = (Get-Date).ToUniversalTime().ToString('o')
+        Status = $(if ($blocking.Count) { 'FAIL' } else { 'PASS' })
+        Provider = $provider
+        NodeCount = $nodes.Count
+        FindingCount = $findings.Count
+        BlockingFindingCount = $blocking.Count
+        FailOn = @($FailOn)
+        Findings = @($findings)
+    }
+    $directory = Split-Path -Parent $Path
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $audit | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $Path -Encoding UTF8
+    return $audit
+}
+
+function Get-M2WSafeControlCategory {
+    param([Parameter(Mandatory)]$Node)
+    if ($Node.Dangerous -or -not $Node.Enabled -or $Node.Offscreen) { return $null }
+    $name = ([string]$Node.Name).Trim()
+    if (-not $name) { return $null }
+    $type = [string]$Node.ControlType
+    if ($type -eq 'TabItem') { return 'tab' }
+    if ($type -eq 'MenuItem' -and $name -match '(?i)^(file|edit|view|window|tools|settings|help|\u6587\u4ef6|\u7f16\u8f91|\u663e\u793a|\u7a97\u53e3|\u5de5\u5177|\u8bbe\u7f6e|\u5e2e\u52a9)$') {
+        return 'menu'
+    }
+    if ($type -in @('Button', 'Hyperlink') -and $name -match '(?i)settings|preferences|options|appearance|theme|details|about|overview|advanced|\u8bbe\u7f6e|\u9009\u9879|\u5916\u89c2|\u4e3b\u9898|\u8be6\u60c5|\u8be6\u7ec6|\u5173\u4e8e|\u603b\u89c8|\u9ad8\u7ea7') {
+        return 'dialog'
+    }
+    if ($type -in @('ListItem', 'TreeItem', 'Button') -and $name -match '(?i)overview|weight|performance|remote compute|general|display|analysis|\u603b\u89c8|\u6743\u91cd|\u6027\u80fd|\u8fdc\u7a0b\u7b97\u529b|\u5e38\u89c4|\u663e\u793a|\u5206\u6790|\u82f1\u4f1f\u8fbe') {
+        return 'navigation'
+    }
+    return $null
+}
+
+function Get-M2WTopLevelWindowsForProcess {
+    param([Parameter(Mandatory)][int]$ProcessId)
+    [System.Windows.Automation.Condition[]]$conditions = @(
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+            $ProcessId
+        ),
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Window
+        )
+    )
+    $condition = [System.Windows.Automation.AndCondition]::new($conditions)
+    try {
+        return @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [System.Windows.Automation.TreeScope]::Children,
+            $condition
+        ))
+    }
+    catch { return @() }
+}
+
+function Close-M2WExplorationWindow {
+    param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Window)
+    $pattern = $null
+    if ($Window.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$pattern)) {
+        ([System.Windows.Automation.WindowPattern]$pattern).Close()
+        return
+    }
+    try { $Window.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('%{F4}') } catch { }
+}
+
+function Invoke-M2WSafeExploration {
+    param(
+        [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
+        [Parameter(Mandatory)][string]$RunDirectory,
+        [Parameter(Mandatory)][string]$ScenarioId,
+        [Parameter(Mandatory)][string]$Prefix,
+        [int]$MaxControls = 12,
+        [string[]]$FailOn = @(),
+        [int]$TolerancePixels = 2
+    )
+    $graphPath = Join-Path $RunDirectory "interaction-graphs\$ScenarioId-$Prefix.json"
+    $graph = Export-M2WInteractionGraph -Root $Root -Path $graphPath
+    $auditPath = Join-Path $RunDirectory "audits\$ScenarioId-$Prefix.json"
+    $audit = Export-M2WDeterministicAudit -Graph $graph -Path $auditPath -FailOn $FailOn -TolerancePixels $TolerancePixels
+    if ($graph.Status -ne 'READY') {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'; Blocker = $graph.Blocker; Graph = $graphPath; Audit = $auditPath
+            CandidateCount = 0; InvokedCount = 0; SkippedDangerous = @($graph.DeniedDangerous); Results = @()
+        }
+    }
+
+    $candidates = @($graph.Nodes | ForEach-Object {
+        $category = Get-M2WSafeControlCategory -Node $_
+        if ($category) {
+            [pscustomobject]@{ Node = $_; Category = $category }
+        }
+    } | Sort-Object @{ Expression = { switch ($_.Category) { 'tab' { 0 } 'navigation' { 1 } 'dialog' { 2 } default { 3 } } } }, @{ Expression = { $_.Node.Name } } | Select-Object -First $MaxControls)
+    $results = [System.Collections.Generic.List[object]]::new()
+    $processId = Get-M2WRootProcessId -Root $Root
+    $rootHandle = Get-M2WRootNativeHandle -Root $Root
+
+    if ($candidates.Count -eq 0) {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'; Blocker = 'BLOCKED_SAFE_EXPLORATION_EMPTY'
+            Graph = $graphPath; Audit = $auditPath; CandidateCount = 0; InvokedCount = 0
+            StateChangeCount = 0; SkippedDangerous = @($graph.DeniedDangerous); Results = @()
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        $node = $candidate.Node
+        $safeName = ([string]$node.Name -replace '[^A-Za-z0-9_-]', '_').Trim('_')
+        if (-not $safeName) { $safeName = 'control' }
+        if ($safeName.Length -gt 32) { $safeName = $safeName.Substring(0, 32) }
+        $sequence = '{0:D2}' -f ($results.Count + 1)
+        $evidenceBase = "$ScenarioId-$Prefix-$sequence-$safeName"
+        $beforePath = Join-Path $RunDirectory "exploration\$evidenceBase-before.png"
+        $afterPath = Join-Path $RunDirectory "exploration\$evidenceBase-after.png"
+        $treePath = Join-Path $RunDirectory "exploration\$evidenceBase.json"
+        $result = [ordered]@{
+            Id = $node.Id; Provider = $node.Provider; Name = $node.Name; ControlType = $node.ControlType
+            Category = $candidate.Category; Status = 'PASS'; InvocationMethod = $null
+            VisibleStateChanged = $false; NewWindows = @(); Evidence = $null; Error = $null
+        }
+        try {
+            $beforeWindows = @(Get-M2WTopLevelWindowsForProcess -ProcessId $processId)
+            $beforeHandles = @($beforeWindows | ForEach-Object { [int64]$_.Current.NativeWindowHandle })
+            Save-M2WScreenshot -Path $beforePath -Window $Root | Out-Null
+            $target = [ordered]@{ name = [string]$node.Name; controlType = [string]$node.ControlType }
+            if ($node.Provider -eq 'UIAutomation' -and $node.AutomationId) { $target['automationId'] = [string]$node.AutomationId }
+            $match = Find-M2WUnifiedElement -Target ([pscustomobject]$target) -Root $Root -TimeoutSeconds 3
+            if (-not $match) { throw 'Safe exploration target was no longer available.' }
+            $invocation = Invoke-M2WUnifiedClick -Match $match
+            $result.InvocationMethod = "$($invocation.Provider)/$($invocation.Method)"
+            Start-Sleep -Milliseconds 450
+
+            $afterWindows = @(Get-M2WTopLevelWindowsForProcess -ProcessId $processId)
+            $newWindows = @($afterWindows | Where-Object {
+                $handle = [int64]$_.Current.NativeWindowHandle
+                $handle -ne [int64]$rootHandle -and $beforeHandles -notcontains $handle
+            })
+            $evidenceWindow = if ($newWindows.Count) { $newWindows[0] } else { $Root }
+            Save-M2WScreenshot -Path $afterPath -Window $evidenceWindow | Out-Null
+            $trees = Export-M2WAccessibleTrees -Root $evidenceWindow -UiAutomationPath $treePath
+            $beforeHash = (Get-FileHash -LiteralPath $beforePath -Algorithm SHA256).Hash
+            $afterHash = (Get-FileHash -LiteralPath $afterPath -Algorithm SHA256).Hash
+            $result.VisibleStateChanged = [bool]($newWindows.Count -or $beforeHash -ne $afterHash)
+            $result.NewWindows = @($newWindows | ForEach-Object { [string]$_.Current.Name })
+            $result.Evidence = [pscustomobject]@{
+                BeforeScreenshot = $beforePath; AfterScreenshot = $afterPath
+                UiTree = $treePath; JavaUiTree = $trees.JavaAccessBridgePath
+            }
+            foreach ($window in $newWindows) { Close-M2WExplorationWindow -Window $window }
+            if ($candidate.Category -eq 'menu' -and -not $newWindows.Count) {
+                try { $Root.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ESC}') } catch { }
+            }
+            Start-Sleep -Milliseconds 180
+        }
+        catch {
+            $result.Status = 'FAIL'
+            $result.Error = $_.Exception.Message
+        }
+        $results.Add([pscustomobject]$result)
+    }
+
+    $failed = @($results | Where-Object { $_.Status -eq 'FAIL' })
+    return [pscustomobject]@{
+        Status = $(if ($audit.Status -eq 'FAIL' -or $failed.Count) { 'FAIL' } else { 'PASS' })
+        Blocker = $null
+        Graph = $graphPath
+        Audit = $auditPath
+        CandidateCount = $candidates.Count
+        InvokedCount = @($results | Where-Object { $_.Status -eq 'PASS' }).Count
+        StateChangeCount = @($results | Where-Object VisibleStateChanged).Count
+        SkippedDangerous = @($graph.DeniedDangerous)
+        Results = @($results)
+    }
+}
+
 function Save-M2WScreenshot {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -809,6 +1062,36 @@ function Invoke-M2WStep {
                 Summary = $(if ($graph.Status -eq 'READY') { 'Discovered actionable controls without invoking unknown targets.' } else { "Interaction graph is incomplete: $($graph.Blocker)" })
             }
         }
+        'audit' {
+            $graphPath = Join-Path $RunDirectory "interaction-graphs\$ScenarioId-$prefix.json"
+            $graph = Export-M2WInteractionGraph -Root $Window -Path $graphPath
+            if ($graph.Status -ne 'READY') {
+                return [pscustomobject]@{ Status = 'BLOCKED'; Action = $action; Summary = "Audit graph is incomplete: $($graph.Blocker)"; Blocker = $graph.Blocker; InteractionGraph = $graphPath }
+            }
+            $auditPath = Join-Path $RunDirectory "audits\$ScenarioId-$prefix.json"
+            $failOn = @((Get-M2WValue -Object $Step -Name 'failOn' -Default @()) | ForEach-Object { [string]$_ })
+            $tolerance = [int](Get-M2WValue -Object $Step -Name 'tolerancePixels' -Default 2)
+            $audit = Export-M2WDeterministicAudit -Graph $graph -Path $auditPath -FailOn $failOn -TolerancePixels $tolerance
+            return [pscustomobject]@{
+                Status = $audit.Status; Action = $action; Audit = $auditPath; InteractionGraph = $graphPath
+                FindingCount = $audit.FindingCount; BlockingFindingCount = $audit.BlockingFindingCount
+                Summary = "Audited $($audit.NodeCount) actionable control(s); found $($audit.FindingCount) issue(s), $($audit.BlockingFindingCount) blocking."
+            }
+        }
+        'explore' {
+            $failOn = @((Get-M2WValue -Object $Step -Name 'failOn' -Default @()) | ForEach-Object { [string]$_ })
+            $limit = [int](Get-M2WValue -Object $Step -Name 'maxControls' -Default 12)
+            $tolerance = [int](Get-M2WValue -Object $Step -Name 'tolerancePixels' -Default 2)
+            $exploration = Invoke-M2WSafeExploration -Root $Window -RunDirectory $RunDirectory -ScenarioId $ScenarioId -Prefix $prefix -MaxControls $limit -FailOn $failOn -TolerancePixels $tolerance
+            return [pscustomobject]@{
+                Status = $exploration.Status; Action = $action; Blocker = $exploration.Blocker
+                InteractionGraph = $exploration.Graph; Audit = $exploration.Audit
+                CandidateCount = $exploration.CandidateCount; InvokedCount = $exploration.InvokedCount
+                StateChangeCount = $exploration.StateChangeCount; SkippedDangerous = $exploration.SkippedDangerous
+                ExplorationResults = $exploration.Results
+                Summary = "Safely invoked $($exploration.InvokedCount) of $($exploration.CandidateCount) classified control(s); $($exploration.StateChangeCount) produced visible state changes."
+            }
+        }
         'assert' {
             $assertion = Test-M2WAssertion -Step $Step -Window $Window
             return [pscustomobject]@{ Status = $(if ($assertion.Passed) { 'PASS' } else { 'FAIL' }); Action = $action; Summary = $assertion.Detail }
@@ -878,6 +1161,9 @@ Export-ModuleMember -Function @(
     'Export-M2WUiTree',
     'Export-M2WAccessibleTrees',
     'Export-M2WInteractionGraph',
+    'Export-M2WDeterministicAudit',
+    'Get-M2WSafeControlCategory',
+    'Invoke-M2WSafeExploration',
     'Save-M2WScreenshot',
     'Find-M2WUnifiedElement',
     'Find-M2WJavaElement',

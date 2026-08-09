@@ -60,6 +60,37 @@ if (-not $visibleMatched) { throw 'Visible Java control did not match its select
 if ($hiddenMatched) { throw 'Hidden Java control unexpectedly matched the default selector.' }
 if (-not $hiddenDiagnosticMatched) { throw 'Explicit offscreen Java diagnostic selector did not match.' }
 
+$settingsNode = [pscustomobject]@{ Name = 'Open settings'; ControlType = 'Button'; Dangerous = $false; Enabled = $true; Offscreen = $false }
+$paymentNode = [pscustomobject]@{ Name = 'Pay now'; ControlType = 'Button'; Dangerous = $true; Enabled = $true; Offscreen = $false }
+$unknownNode = [pscustomobject]@{ Name = 'Launch mystery'; ControlType = 'Button'; Dangerous = $false; Enabled = $true; Offscreen = $false }
+if ((Get-M2WSafeControlCategory -Node $settingsNode) -ne 'dialog') { throw 'Safe settings control was not classified.' }
+if (Get-M2WSafeControlCategory -Node $paymentNode) { throw 'Dangerous control was classified as safe.' }
+if (Get-M2WSafeControlCategory -Node $unknownNode) { throw 'Unknown control was classified as safe.' }
+
+$auditRoot = Join-Path ([IO.Path]::GetTempPath()) ("m2w-audit-" + [Guid]::NewGuid().ToString('N'))
+try {
+    $graph = [pscustomobject]@{
+        Root = [pscustomobject]@{ ClassName = 'FixtureWindow'; Bounds = [pscustomobject]@{ X = 0; Y = 0; Width = 300; Height = 200 } }
+        Providers = [pscustomobject]@{ JavaAccessBridge = [pscustomobject]@{ Status = 'UNAVAILABLE'; Actionable = 0 } }
+        Nodes = @(
+            [pscustomobject]@{ Id = 'missing'; Provider = 'UIAutomation'; Parent = 'root'; Name = ''; Offscreen = $false; Bounds = [pscustomobject]@{ X = 10; Y = 10; Width = 80; Height = 30 } },
+            [pscustomobject]@{ Id = 'overlap-a'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'A'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 100; Y = 20; Width = 80; Height = 40 } },
+            [pscustomobject]@{ Id = 'overlap-b'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'B'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 140; Y = 30; Width = 80; Height = 40 } },
+            [pscustomobject]@{ Id = 'outside'; Provider = 'UIAutomation'; Parent = 'root'; Name = 'Outside'; Offscreen = $false; Bounds = [pscustomobject]@{ X = 280; Y = 160; Width = 60; Height = 50 } }
+        )
+    }
+    $auditPath = Join-Path $auditRoot 'audit.json'
+    $audit = Export-M2WDeterministicAudit -Graph $graph -Path $auditPath -FailOn @('OUTSIDE_WINDOW', 'ACTIONABLE_OVERLAP')
+    $codes = @($audit.Findings | Select-Object -ExpandProperty Code)
+    foreach ($expected in @('MISSING_ACCESSIBLE_NAME', 'OUTSIDE_WINDOW', 'ACTIONABLE_OVERLAP')) {
+        if ($codes -notcontains $expected) { throw "Deterministic audit missed $expected." }
+    }
+    if ($audit.Status -ne 'FAIL') { throw 'Configured deterministic audit findings did not fail.' }
+}
+finally {
+    Remove-Item -LiteralPath $auditRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $probeInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $probeInfo.FileName = 'cmd.exe'
 $probeInfo.Arguments = '/d /c "echo probe-output & exit 7"'
