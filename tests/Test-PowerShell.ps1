@@ -33,6 +33,36 @@ if ([M2W.JavaAccessBridgeClient]::AccessibleActionsToDoSize -ne 16388) {
 if (-not [M2W.JavaAccessBridgeClient].GetMethod('InvokeAction')) {
     throw 'Java Access Bridge accessible actions are unavailable.'
 }
+$javaSnapshotCommand = Get-Command Get-M2WJavaAccessibilitySnapshot
+foreach ($parameterName in @('TimeoutSeconds', 'InProcess')) {
+    if (-not $javaSnapshotCommand.Parameters.ContainsKey($parameterName)) {
+        throw "Java accessibility snapshot is missing the $parameterName parameter."
+    }
+}
+$captureHelper = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\Capture-JavaAccessibility.ps1'
+if (-not (Test-Path -LiteralPath $captureHelper -PathType Leaf)) {
+    throw 'Isolated Java accessibility capture helper is missing.'
+}
+$previousCaptureDelay = $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS
+try {
+    $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS = '1800'
+    $timeoutStart = Get-Date
+    $timeoutSnapshot = Get-M2WJavaAccessibilitySnapshot -WindowHandle ([IntPtr]::Zero) -TimeoutSeconds 1
+    if ($timeoutSnapshot.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT') {
+        throw "Java accessibility capture did not return the timeout blocker: $($timeoutSnapshot.Blocker)"
+    }
+    if (((Get-Date) - $timeoutStart).TotalSeconds -gt 5) {
+        throw 'Java accessibility capture timeout exceeded its bounded shutdown allowance.'
+    }
+}
+finally {
+    if ($null -eq $previousCaptureDelay) {
+        Remove-Item Env:M2W_TEST_JAVA_CAPTURE_DELAY_MS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS = $previousCaptureDelay
+    }
+}
 
 $uiAutomationModule = Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force -PassThru
 Initialize-M2WUiAutomation

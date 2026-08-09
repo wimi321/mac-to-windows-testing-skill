@@ -30,6 +30,7 @@ def main() -> int:
         SKILL / 'SKILL.md',
         SKILL / 'agents' / 'openai.yaml',
         SKILL / 'scripts' / 'mac2win_test.py',
+        SKILL / 'scripts' / 'windows-runner' / 'Capture-JavaAccessibility.ps1',
         SKILL / 'scripts' / 'windows-runner' / 'JavaAccessBridge.psm1',
         SKILL / 'scripts' / 'windows-runner' / 'Invoke-MacToWindowsTest.ps1',
     ]

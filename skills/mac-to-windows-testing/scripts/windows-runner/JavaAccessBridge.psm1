@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:M2WJavaBridgeStarted = $false
 $script:M2WJavaBridgeDll = $null
+$script:M2WJavaBridgeModulePath = $PSCommandPath
 
 function Initialize-M2WJavaAccessBridgeTypes {
     if ($env:OS -ne 'Windows_NT') {
@@ -515,12 +516,119 @@ function Initialize-M2WJavaAccessBridge {
     }
 }
 
+function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
+    param(
+        [Parameter(Mandatory)][IntPtr]$WindowHandle,
+        [int]$ProcessId = 0,
+        [int]$Limit = 5000,
+        [int]$TimeoutSeconds = 8
+    )
+    $captureScript = Join-Path $PSScriptRoot 'Capture-JavaAccessibility.ps1'
+    if (-not (Test-Path -LiteralPath $captureScript -PathType Leaf)) {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_HELPER_MISSING'
+            Detail = "Java accessibility capture helper was not found: $captureScript"
+            DllPath = $null
+            Nodes = @()
+        }
+    }
+
+    $outputPath = Join-Path ([IO.Path]::GetTempPath()) ("m2w-java-accessibility-" + [Guid]::NewGuid().ToString('N') + '.json')
+    $process = [System.Diagnostics.Process]::new()
+    try {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'powershell.exe'
+        $startInfo.Arguments = @(
+            '-NoProfile'
+            '-NonInteractive'
+            '-ExecutionPolicy Bypass'
+            "-File `"$captureScript`""
+            "-ModulePath `"$script:M2WJavaBridgeModulePath`""
+            "-WindowHandle $($WindowHandle.ToInt64())"
+            "-ProcessId $ProcessId"
+            "-Limit $Limit"
+            "-OutputPath `"$outputPath`""
+        ) -join ' '
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process.StartInfo = $startInfo
+        [void]$process.Start()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $completed = $process.WaitForExit([Math]::Max(1, $TimeoutSeconds) * 1000)
+        if (-not $completed) {
+            try { $process.Kill() } catch { }
+            try { [void]$process.WaitForExit(5000) } catch { }
+            return [pscustomobject]@{
+                Status = 'BLOCKED'
+                Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT'
+                Detail = "Java accessibility capture exceeded the $TimeoutSeconds second evidence deadline."
+                DllPath = $null
+                Nodes = @()
+            }
+        }
+
+        $process.WaitForExit()
+        $process.Refresh()
+        $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
+        $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
+        if (Test-Path -LiteralPath $outputPath -PathType Leaf) {
+            try {
+                return Get-Content -LiteralPath $outputPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            }
+            catch {
+                return [pscustomobject]@{
+                    Status = 'BLOCKED'
+                    Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_INVALID'
+                    Detail = "Java accessibility capture returned invalid evidence: $($_.Exception.Message)"
+                    DllPath = $null
+                    Nodes = @()
+                }
+            }
+        }
+
+        $detail = if ($stderr) { $stderr } elseif ($stdout) { $stdout } else { "Capture helper exited with code $($process.ExitCode) without evidence." }
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_FAILED'
+            Detail = $detail
+            DllPath = $null
+            Nodes = @()
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_FAILED'
+            Detail = $_.Exception.Message
+            DllPath = $null
+            Nodes = @()
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $outputPath) {
+            Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
+        }
+        $process.Dispose()
+    }
+}
+
 function Get-M2WJavaAccessibilitySnapshot {
     param(
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
         [int]$ProcessId = 0,
-        [int]$Limit = 5000
+        [int]$Limit = 5000,
+        [int]$TimeoutSeconds = 8,
+        [switch]$InProcess
     )
+    if (-not $InProcess) {
+        return Invoke-M2WIsolatedJavaAccessibilitySnapshot `
+            -WindowHandle $WindowHandle -ProcessId $ProcessId -Limit $Limit -TimeoutSeconds $TimeoutSeconds
+    }
+
     $status = Initialize-M2WJavaAccessBridge -WindowHandle $WindowHandle -ProcessId $ProcessId
     if (-not $status.Available -or -not $status.IsJavaWindow) {
         return [pscustomobject]@{ Status = 'BLOCKED'; Blocker = $status.Blocker; Detail = $status.Detail; DllPath = $status.DllPath; Nodes = @() }
