@@ -365,11 +365,16 @@ function Export-M2WAccessibleTrees {
     $handle = Get-M2WRootNativeHandle -Root $Root
     $processId = Get-M2WRootProcessId -Root $Root
     $javaSnapshot = $null
-    if ($handle -ne [IntPtr]::Zero) {
+    if ((Test-M2WJavaUiRoot -Root $Root) -and $handle -ne [IntPtr]::Zero) {
         $javaSnapshot = Export-M2WJavaAccessibilityTree -WindowHandle $handle -ProcessId $processId -Path $javaPath -Limit $Limit
     }
     if (-not $javaSnapshot) {
-        $javaSnapshot = [pscustomobject]@{ Status = 'BLOCKED'; Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_UNAVAILABLE'; Detail = 'No native window handle was available.'; Nodes = @() }
+        $javaSnapshot = [pscustomobject]@{
+            Status = $(if (Test-M2WJavaUiRoot -Root $Root) { 'BLOCKED' } else { 'NOT_APPLICABLE' })
+            Blocker = $(if (Test-M2WJavaUiRoot -Root $Root) { 'BLOCKED_JAVA_ACCESS_BRIDGE_UNAVAILABLE' } else { $null })
+            Detail = $(if (Test-M2WJavaUiRoot -Root $Root) { 'No native Java window handle was available.' } else { 'The target window is not a Java AWT or Swing root.' })
+            Nodes = @()
+        }
         $javaSnapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $javaPath -Encoding UTF8
     }
     return [pscustomobject]@{
@@ -430,9 +435,11 @@ function Find-M2WUnifiedElement {
     if ($element) {
         return [pscustomobject]@{ Provider = 'UIAutomation'; Element = $element; Node = $null; Root = $Root }
     }
-    $node = Find-M2WJavaElement -Target $Target -Root $Root -TimeoutSeconds $TimeoutSeconds
-    if ($node) {
-        return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Element = $null; Node = $node; Root = $Root }
+    if (Test-M2WJavaUiRoot -Root $Root) {
+        $node = Find-M2WJavaElement -Target $Target -Root $Root -TimeoutSeconds $TimeoutSeconds
+        if ($node) {
+            return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Element = $null; Node = $node; Root = $Root }
+        }
     }
     return $null
 }
@@ -836,7 +843,9 @@ function Invoke-M2WSafeExploration {
             $beforeWindows = @(Get-M2WTopLevelWindowsForProcess -ProcessId $processId)
             $beforeHandles = @($beforeWindows | ForEach-Object { [int64]$_.Current.NativeWindowHandle })
             Save-M2WScreenshot -Path $beforePath -Window $Root | Out-Null
-            $target = [ordered]@{ name = [string]$node.Name; controlType = [string]$node.ControlType }
+            $reportedType = Get-M2WValue -Object $node -Name 'ReportedControlType'
+            $selectorType = if ($reportedType) { [string]$reportedType } else { [string]$node.ControlType }
+            $target = [ordered]@{ name = [string]$node.Name; controlType = $selectorType }
             if ($node.Provider -eq 'UIAutomation' -and $node.AutomationId) { $target['automationId'] = [string]$node.AutomationId }
             $match = Find-M2WUnifiedElement -Target ([pscustomobject]$target) -Root $Root -TimeoutSeconds 3
             if (-not $match) { throw 'Safe exploration target was no longer available.' }
