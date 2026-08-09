@@ -49,3 +49,23 @@ scenarios:
         condition: "exists"
       - action: "screenshot"
         checkpoint: "clean"
+      - action: "audit"
+        checkpoint: "clean-layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+  - id: "safe-exploration"
+    title: "Safe exploration opens and closes a harmless settings window"
+    window:
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "explore"
+        checkpoint: "fixture-navigation"
+        maxControls: 4
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+      - action: "screenshot"
+        checkpoint: "after-safe-exploration"
