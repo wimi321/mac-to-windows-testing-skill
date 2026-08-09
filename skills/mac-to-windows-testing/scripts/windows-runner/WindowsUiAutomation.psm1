@@ -460,9 +460,25 @@ function Invoke-M2WUnifiedClick {
     param([Parameter(Mandatory)]$Match)
     if ($Match.Provider -eq 'UIAutomation') {
         Invoke-M2WElementClick -Element $Match.Element
-        return
+        return [pscustomobject]@{ Provider = 'UIAutomation'; Method = 'AutomationPatternOrPhysicalFallback'; Action = $null }
     }
     $windowHandle = Get-M2WRootNativeHandle -Root $Match.Root
+    $processId = Get-M2WRootProcessId -Root $Match.Root
+    $accessibleAction = Invoke-M2WJavaAccessibleAction `
+        -WindowHandle $windowHandle `
+        -ProcessId $processId `
+        -ChildPath @($Match.Node.ChildPath) `
+        -PreferredAction 'click'
+    if ($accessibleAction.Status -eq 'PASS') {
+        return [pscustomobject]@{
+            Provider = 'JavaAccessBridge'
+            Method = 'AccessibleAction'
+            Action = $accessibleAction.Action
+        }
+    }
+    if ($accessibleAction.Status -eq 'FAIL' -or $accessibleAction.Status -eq 'BLOCKED') {
+        throw "Java accessible action failed: $($accessibleAction.Detail)"
+    }
     if ($windowHandle -ne [IntPtr]::Zero) {
         if (-not [M2W.NativeMethods]::ActivateWindow($windowHandle)) {
             throw 'Unable to activate the Java target window before clicking.'
@@ -474,6 +490,7 @@ function Invoke-M2WUnifiedClick {
         throw 'Java accessible target does not have visible clickable bounds.'
     }
     Invoke-M2WPointClick -X ($bounds.X + ($bounds.Width / 2)) -Y ($bounds.Y + ($bounds.Height / 2))
+    return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Method = 'PhysicalFallback'; Action = $null }
 }
 
 function Export-M2WUiTree {
@@ -541,7 +558,8 @@ function Export-M2WInteractionGraph {
         }
     })
     $javaNodes = @($evidence.JavaAccessBridge.Nodes | Where-Object {
-        $_.Actionable -or $actionableTypes -contains $_.ControlType
+        (-not $_.Offscreen) -and $_.Width -gt 0 -and $_.Height -gt 0 -and
+        ($_.Actionable -or $actionableTypes -contains $_.ControlType)
     } | ForEach-Object {
         $target = [pscustomobject]@{ name = $_.Name; automationId = '' }
         $dangerous = Test-M2WDangerousTarget -Target $target
@@ -802,9 +820,15 @@ function Invoke-M2WStep {
             }
             $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 10
             if (-not $match) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Click target not found.' } }
-            Invoke-M2WUnifiedClick -Match $match
+            $invocation = Invoke-M2WUnifiedClick -Match $match
             Start-Sleep -Milliseconds 350
-            return [pscustomobject]@{ Status = 'PASS'; Action = $action; Summary = "Invoked target through $($match.Provider)." }
+            return [pscustomobject]@{
+                Status = 'PASS'
+                Action = $action
+                Provider = $invocation.Provider
+                InvocationMethod = $invocation.Method
+                Summary = "Invoked target through $($invocation.Provider) using $($invocation.Method)."
+            }
         }
         'type' {
             $target = Get-M2WValue -Object $Step -Name 'target'

@@ -24,6 +24,15 @@ Initialize-M2WJavaAccessBridgeTypes
 if ([M2W.JavaAccessBridgeClient]::ContextInfoSize -ne 6188) {
     throw "Java Access Bridge context layout mismatch: $([M2W.JavaAccessBridgeClient]::ContextInfoSize)"
 }
+if ([M2W.JavaAccessBridgeClient]::AccessibleActionsSize -ne 131076) {
+    throw "Java Access Bridge action-list layout mismatch: $([M2W.JavaAccessBridgeClient]::AccessibleActionsSize)"
+}
+if ([M2W.JavaAccessBridgeClient]::AccessibleActionsToDoSize -ne 16388) {
+    throw "Java Access Bridge action-request layout mismatch: $([M2W.JavaAccessBridgeClient]::AccessibleActionsToDoSize)"
+}
+if (-not [M2W.JavaAccessBridgeClient].GetMethod('InvokeAction')) {
+    throw 'Java Access Bridge accessible actions are unavailable.'
+}
 
 $uiAutomationModule = Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force -PassThru
 Initialize-M2WUiAutomation

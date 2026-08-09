@@ -61,6 +61,16 @@ namespace M2W {
     public bool HasKeyboardFocus { get; set; }
     public bool Actionable { get; set; }
     public bool SupportsText { get; set; }
+    public int[] ChildPath { get; set; }
+  }
+
+  public sealed class JavaAccessibleActionResult {
+    public bool Success { get; set; }
+    public bool Supported { get; set; }
+    public string SelectedAction { get; set; }
+    public string[] AvailableActions { get; set; }
+    public int FailureIndex { get; set; }
+    public string Detail { get; set; }
   }
 
   public static class JavaAccessBridgeClient {
@@ -91,11 +101,29 @@ namespace M2W {
     [DllImport("WindowsAccessBridge-64.dll", EntryPoint = "releaseJavaObject", CallingConvention = CallingConvention.Cdecl)]
     private static extern void ReleaseJavaObjectNative(int vmId, long context);
 
+    [DllImport("WindowsAccessBridge-64.dll", EntryPoint = "getAccessibleActions", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int GetAccessibleActionsNative(int vmId, long context, IntPtr actions);
+
+    [DllImport("WindowsAccessBridge-64.dll", EntryPoint = "doAccessibleActions", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int DoAccessibleActionsNative(int vmId, long context, IntPtr actionsToDo, out int failure);
+
     private static IntPtr module = IntPtr.Zero;
     private static bool started;
+    private const int ShortStringChars = 256;
+    private const int ActionInfoBytes = ShortStringChars * 2;
+    private const int MaxActionInfo = 256;
+    private const int MaxActionsToDo = 32;
 
     public static int ContextInfoSize {
       get { return Marshal.SizeOf(typeof(AccessibleContextInfoNative)); }
+    }
+
+    public static int AccessibleActionsSize {
+      get { return sizeof(int) + (ActionInfoBytes * MaxActionInfo); }
+    }
+
+    public static int AccessibleActionsToDoSize {
+      get { return sizeof(int) + (ActionInfoBytes * MaxActionsToDo); }
     }
 
     public static void Start(string dllPath) {
@@ -109,7 +137,8 @@ namespace M2W {
       }
       string[] exports = {
         "Windows_run", "isJavaWindow", "getAccessibleContextFromHWND",
-        "getAccessibleContextInfo", "getAccessibleChildFromContext", "releaseJavaObject"
+        "getAccessibleContextInfo", "getAccessibleChildFromContext", "releaseJavaObject",
+        "getAccessibleActions", "doAccessibleActions"
       };
       foreach (string exportName in exports) {
         if (GetProcAddress(module, exportName) == IntPtr.Zero) {
@@ -130,6 +159,7 @@ namespace M2W {
       public long Context;
       public int Parent;
       public int Depth;
+      public int[] ChildPath;
     }
 
     public static JavaAccessibleNode[] Walk(IntPtr window, int limit) {
@@ -146,7 +176,7 @@ namespace M2W {
       var queue = new Queue<QueueEntry>();
       var seen = new HashSet<long>();
       var references = new List<long>();
-      queue.Enqueue(new QueueEntry { Context = rootContext, Parent = -1, Depth = 0 });
+      queue.Enqueue(new QueueEntry { Context = rootContext, Parent = -1, Depth = 0, ChildPath = new int[0] });
       seen.Add(rootContext);
       references.Add(rootContext);
 
@@ -182,7 +212,8 @@ namespace M2W {
             KeyboardFocusable = HasState(states, "focusable"),
             HasKeyboardFocus = HasState(states, "focused"),
             Actionable = supportsAction || IsActionableRole(role),
-            SupportsText = info.AccessibleText != 0 || (info.AccessibleInterfaces & 32) != 0
+            SupportsText = info.AccessibleText != 0 || (info.AccessibleInterfaces & 32) != 0,
+            ChildPath = entry.ChildPath
           });
 
           int childCount = Math.Min(Math.Max(0, info.ChildrenCount), limit);
@@ -194,7 +225,10 @@ namespace M2W {
               continue;
             }
             references.Add(child);
-            queue.Enqueue(new QueueEntry { Context = child, Parent = nodeIndex, Depth = entry.Depth + 1 });
+            int[] childPath = new int[entry.ChildPath.Length + 1];
+            Array.Copy(entry.ChildPath, childPath, entry.ChildPath.Length);
+            childPath[childPath.Length - 1] = childIndex;
+            queue.Enqueue(new QueueEntry { Context = child, Parent = nodeIndex, Depth = entry.Depth + 1, ChildPath = childPath });
           }
         }
       }
@@ -206,6 +240,110 @@ namespace M2W {
         }
       }
       return result.ToArray();
+    }
+
+    public static JavaAccessibleActionResult InvokeAction(IntPtr window, int[] childPath, string preferredAction) {
+      if (!started) { throw new InvalidOperationException("Java Access Bridge is not initialized."); }
+      if (window == IntPtr.Zero) { throw new ArgumentException("A Java window handle is required.", "window"); }
+
+      int vmId;
+      long rootContext;
+      if (GetAccessibleContextFromHwndNative(window, out vmId, out rootContext) == 0 || rootContext == 0) {
+        return ActionResult(false, false, null, new string[0], -1, "The Java root context is unavailable.");
+      }
+
+      var references = new List<long>();
+      references.Add(rootContext);
+      long context = rootContext;
+      IntPtr actionsBuffer = IntPtr.Zero;
+      IntPtr actionsToDoBuffer = IntPtr.Zero;
+      try {
+        foreach (int childIndex in childPath ?? new int[0]) {
+          if (childIndex < 0) {
+            return ActionResult(false, false, null, new string[0], -1, "The Java accessibility path is invalid.");
+          }
+          long child = GetAccessibleChildFromContextNative(vmId, context, childIndex);
+          if (child == 0) {
+            return ActionResult(false, false, null, new string[0], -1, "The Java control changed before its action could be invoked.");
+          }
+          references.Add(child);
+          context = child;
+        }
+
+        actionsBuffer = Marshal.AllocHGlobal(AccessibleActionsSize);
+        if (GetAccessibleActionsNative(vmId, context, actionsBuffer) == 0) {
+          return ActionResult(false, false, null, new string[0], -1, "The Java control does not expose an accessible action.");
+        }
+
+        int count = Marshal.ReadInt32(actionsBuffer);
+        if (count < 0 || count > MaxActionInfo) {
+          return ActionResult(false, false, null, new string[0], -1, "Java Access Bridge returned an invalid action count.");
+        }
+        var available = new List<string>();
+        for (int index = 0; index < count; index++) {
+          IntPtr actionPointer = IntPtr.Add(actionsBuffer, sizeof(int) + (index * ActionInfoBytes));
+          string action = (Marshal.PtrToStringUni(actionPointer, ShortStringChars) ?? String.Empty).TrimEnd('\0').Trim();
+          if (!String.IsNullOrEmpty(action)) { available.Add(action); }
+        }
+        if (available.Count == 0) {
+          return ActionResult(false, false, null, available.ToArray(), -1, "The Java control exposes no usable accessible action.");
+        }
+
+        string selected = null;
+        if (!String.IsNullOrWhiteSpace(preferredAction)) {
+          selected = available.Find(delegate(string value) {
+            return String.Equals(value, preferredAction, StringComparison.OrdinalIgnoreCase);
+          });
+        }
+        if (selected == null) {
+          selected = available.Find(delegate(string value) {
+            return String.Equals(value, "click", StringComparison.OrdinalIgnoreCase);
+          });
+        }
+        if (selected == null) { selected = available[0]; }
+
+        actionsToDoBuffer = Marshal.AllocHGlobal(AccessibleActionsToDoSize);
+        Marshal.WriteInt32(actionsToDoBuffer, 1);
+        char[] actionCharacters = new char[ShortStringChars];
+        int copyLength = Math.Min(selected.Length, ShortStringChars - 1);
+        selected.CopyTo(0, actionCharacters, 0, copyLength);
+        Marshal.Copy(actionCharacters, 0, IntPtr.Add(actionsToDoBuffer, sizeof(int)), actionCharacters.Length);
+        int failure;
+        bool success = DoAccessibleActionsNative(vmId, context, actionsToDoBuffer, out failure) != 0;
+        return ActionResult(
+          success,
+          true,
+          selected,
+          available.ToArray(),
+          failure,
+          success ? "The Java accessible action completed." : "Java Access Bridge rejected the requested action."
+        );
+      }
+      finally {
+        if (actionsToDoBuffer != IntPtr.Zero) { Marshal.FreeHGlobal(actionsToDoBuffer); }
+        if (actionsBuffer != IntPtr.Zero) { Marshal.FreeHGlobal(actionsBuffer); }
+        for (int index = references.Count - 1; index >= 0; index--) {
+          ReleaseJavaObjectNative(vmId, references[index]);
+        }
+      }
+    }
+
+    private static JavaAccessibleActionResult ActionResult(
+      bool success,
+      bool supported,
+      string selectedAction,
+      string[] availableActions,
+      int failureIndex,
+      string detail
+    ) {
+      return new JavaAccessibleActionResult {
+        Success = success,
+        Supported = supported,
+        SelectedAction = selectedAction,
+        AvailableActions = availableActions ?? new string[0],
+        FailureIndex = failureIndex,
+        Detail = detail
+      };
     }
 
     private static string Clean(string value) {
@@ -396,6 +534,50 @@ function Get-M2WJavaAccessibilitySnapshot {
     }
 }
 
+function Invoke-M2WJavaAccessibleAction {
+    param(
+        [Parameter(Mandatory)][IntPtr]$WindowHandle,
+        [Parameter(Mandatory)][int[]]$ChildPath,
+        [int]$ProcessId = 0,
+        [string]$PreferredAction = 'click'
+    )
+    $status = Initialize-M2WJavaAccessBridge -WindowHandle $WindowHandle -ProcessId $ProcessId
+    if (-not $status.Available -or -not $status.IsJavaWindow) {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Supported = $false
+            Action = $null
+            AvailableActions = @()
+            FailureIndex = -1
+            Blocker = $status.Blocker
+            Detail = $status.Detail
+        }
+    }
+    try {
+        $result = [M2W.JavaAccessBridgeClient]::InvokeAction($WindowHandle, $ChildPath, $PreferredAction)
+        return [pscustomobject]@{
+            Status = $(if ($result.Success) { 'PASS' } elseif ($result.Supported) { 'FAIL' } else { 'UNAVAILABLE' })
+            Supported = $result.Supported
+            Action = $result.SelectedAction
+            AvailableActions = @($result.AvailableActions)
+            FailureIndex = $result.FailureIndex
+            Blocker = $(if (-not $result.Success -and $result.Supported) { 'JAVA_ACCESSIBLE_ACTION_FAILED' } else { $null })
+            Detail = $result.Detail
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Status = 'FAIL'
+            Supported = $true
+            Action = $PreferredAction
+            AvailableActions = @()
+            FailureIndex = -1
+            Blocker = 'JAVA_ACCESSIBLE_ACTION_EXCEPTION'
+            Detail = $_.Exception.Message
+        }
+    }
+}
+
 function Export-M2WJavaAccessibilityTree {
     param(
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
@@ -416,5 +598,6 @@ Export-ModuleMember -Function @(
     'Enable-M2WJavaAccessBridge',
     'Initialize-M2WJavaAccessBridge',
     'Get-M2WJavaAccessibilitySnapshot',
+    'Invoke-M2WJavaAccessibleAction',
     'Export-M2WJavaAccessibilityTree'
 )
