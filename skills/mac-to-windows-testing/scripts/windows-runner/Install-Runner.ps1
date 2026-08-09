@@ -3,6 +3,7 @@ param([Parameter(Mandatory = $true)][string]$RunnerRoot)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $taskName = 'Mac-to-Windows Testing Skill Runner'
+Import-Module (Join-Path $PSScriptRoot 'JavaAccessBridge.psm1') -Force
 [IO.Directory]::CreateDirectory($RunnerRoot) | Out-Null
 [IO.Directory]::CreateDirectory((Join-Path $RunnerRoot 'queue')) | Out-Null
 [IO.Directory]::CreateDirectory((Join-Path $RunnerRoot 'incoming')) | Out-Null
@@ -16,4 +17,11 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfil
 $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType InteractiveToken -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-[pscustomobject]@{ status = 'INSTALLED'; task = $taskName; root = $RunnerRoot; user = $principal.UserId } | ConvertTo-Json -Compress
+$javaAccessBridge = Enable-M2WJavaAccessBridge
+[pscustomobject]@{
+    status = 'INSTALLED'
+    task = $taskName
+    root = $RunnerRoot
+    user = $principal.UserId
+    javaAccessBridge = $javaAccessBridge
+} | ConvertTo-Json -Depth 5 -Compress

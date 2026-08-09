@@ -18,6 +18,13 @@ foreach ($file in $files) {
 }
 if ($failed) { exit 1 }
 
+$javaAccessBridgeModule = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\JavaAccessBridge.psm1'
+Import-Module $javaAccessBridgeModule -Force
+Initialize-M2WJavaAccessBridgeTypes
+if ([M2W.JavaAccessBridgeClient]::ContextInfoSize -ne 6188) {
+    throw "Java Access Bridge context layout mismatch: $([M2W.JavaAccessBridgeClient]::ContextInfoSize)"
+}
+
 Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force
 Initialize-M2WUiAutomation
 $first = [System.Windows.Rect]::new(0, 0, 100, 100)

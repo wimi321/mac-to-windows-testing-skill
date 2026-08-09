@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'JavaAccessBridge.psm1') -Force
 
 function Get-M2WValue {
     param($Object, [Parameter(Mandatory)][string]$Name, $Default = $null)
@@ -10,6 +11,23 @@ function Get-M2WValue {
     $property = $Object.PSObject.Properties[$Name]
     if ($property) { return $property.Value }
     return $Default
+}
+
+function Get-M2WRootNativeHandle {
+    param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root)
+    try { return [IntPtr]([int64]$Root.Current.NativeWindowHandle) } catch { return [IntPtr]::Zero }
+}
+
+function Get-M2WRootProcessId {
+    param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root)
+    try { return [int]$Root.Current.ProcessId } catch { return 0 }
+}
+
+function Test-M2WJavaUiRoot {
+    param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root)
+    $className = ''
+    try { $className = [string]$Root.Current.ClassName } catch { }
+    return $className -match '^(?:SunAwt|javax\.swing|java\.awt)'
 }
 
 function Initialize-M2WUiAutomation {
@@ -88,6 +106,8 @@ function Get-M2WEnvironment {
         try { $dpi = [int][Math]::Round($graphics.DpiX) } finally { $graphics.Dispose() }
     }
     catch { }
+    $accessibilityProperties = Join-Path $HOME '.accessibility.properties'
+    $javaAccessBridgeCandidates = @(Get-M2WJavaAccessBridgeCandidates)
     return [pscustomobject]@{
         ComputerName = $env:COMPUTERNAME
         UserName = $env:USERNAME
@@ -99,6 +119,11 @@ function Get-M2WEnvironment {
         Session = $session
         Screens = $screens
         VideoControllers = $video
+        JavaAccessBridge = [pscustomobject]@{
+            UserConfigurationPresent = Test-Path -LiteralPath $accessibilityProperties -PathType Leaf
+            DllAvailable = $javaAccessBridgeCandidates.Count -gt 0
+            DllCandidates = @($javaAccessBridgeCandidates | ForEach-Object { Split-Path -Leaf $_ })
+        }
     }
 }
 
@@ -262,6 +287,149 @@ function Convert-M2WElement {
     }
 }
 
+function Convert-M2WJavaNode {
+    param([Parameter(Mandatory)]$Node)
+    return [pscustomobject]@{
+        Provider = 'JavaAccessBridge'
+        Name = [string]$Node.Name
+        Description = [string]$Node.Description
+        AutomationId = ''
+        ControlType = [string]$Node.ControlType
+        ClassName = [string]$Node.Role
+        Role = [string]$Node.Role
+        LocalizedRole = [string]$Node.LocalizedRole
+        States = [string]$Node.States
+        LocalizedStates = [string]$Node.LocalizedStates
+        IsEnabled = [bool]$Node.Enabled
+        IsOffscreen = [bool]$Node.Offscreen
+        IsKeyboardFocusable = [bool]$Node.KeyboardFocusable
+        HasKeyboardFocus = [bool]$Node.HasKeyboardFocus
+        Actionable = [bool]$Node.Actionable
+        Index = [int]$Node.Index
+        Parent = [int]$Node.Parent
+        Depth = [int]$Node.Depth
+        Bounds = [pscustomobject]@{
+            X = [int]$Node.X
+            Y = [int]$Node.Y
+            Width = [int]$Node.Width
+            Height = [int]$Node.Height
+        }
+    }
+}
+
+function Export-M2WAccessibleTrees {
+    param(
+        [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
+        [Parameter(Mandatory)][string]$UiAutomationPath,
+        [int]$Limit = 5000
+    )
+    $uiNodes = @(Export-M2WUiTree -Root $Root -Path $UiAutomationPath -Limit $Limit)
+    $javaPath = $UiAutomationPath -replace '\.json$', '.java.json'
+    $handle = Get-M2WRootNativeHandle -Root $Root
+    $processId = Get-M2WRootProcessId -Root $Root
+    $javaSnapshot = $null
+    if ($handle -ne [IntPtr]::Zero) {
+        $javaSnapshot = Export-M2WJavaAccessibilityTree -WindowHandle $handle -ProcessId $processId -Path $javaPath -Limit $Limit
+    }
+    if (-not $javaSnapshot) {
+        $javaSnapshot = [pscustomobject]@{ Status = 'BLOCKED'; Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_UNAVAILABLE'; Detail = 'No native window handle was available.'; Nodes = @() }
+        $javaSnapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $javaPath -Encoding UTF8
+    }
+    return [pscustomobject]@{
+        UiAutomationPath = $UiAutomationPath
+        UiAutomationNodes = $uiNodes
+        JavaAccessBridgePath = $javaPath
+        JavaAccessBridge = $javaSnapshot
+    }
+}
+
+function Test-M2WJavaNodeTarget {
+    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)]$Target)
+    $automationId = Get-M2WValue -Object $Target -Name 'automationId'
+    if ($automationId) { return $false }
+    $expectedName = Get-M2WValue -Object $Target -Name 'name'
+    if ($null -ne $expectedName -and [string]$Node.Name -ne [string]$expectedName) { return $false }
+    $contains = Get-M2WValue -Object $Target -Name 'nameContains'
+    if ($contains -and ([string]$Node.Name).IndexOf([string]$contains, [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $false }
+    $pattern = Get-M2WValue -Object $Target -Name 'nameRegex'
+    if ($pattern -and -not [regex]::IsMatch([string]$Node.Name, [string]$pattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase)) { return $false }
+    $controlType = Get-M2WValue -Object $Target -Name 'controlType'
+    if ($controlType -and [string]$Node.ControlType -ne [string]$controlType) { return $false }
+    return $true
+}
+
+function Find-M2WJavaElement {
+    param(
+        [Parameter(Mandatory)]$Target,
+        [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
+        [int]$TimeoutSeconds = 10
+    )
+    $handle = Get-M2WRootNativeHandle -Root $Root
+    if ($handle -eq [IntPtr]::Zero) { return $null }
+    $processId = Get-M2WRootProcessId -Root $Root
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $snapshot = Get-M2WJavaAccessibilitySnapshot -WindowHandle $handle -ProcessId $processId
+        if ($snapshot.Status -eq 'READY') {
+            foreach ($node in @($snapshot.Nodes)) {
+                if (Test-M2WJavaNodeTarget -Node $node -Target $Target) { return $node }
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $null
+}
+
+function Find-M2WUnifiedElement {
+    param(
+        [Parameter(Mandatory)]$Target,
+        [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
+        [int]$TimeoutSeconds = 10
+    )
+    $uiaTimeout = if (Test-M2WJavaUiRoot -Root $Root) { [Math]::Min(1, $TimeoutSeconds) } else { $TimeoutSeconds }
+    $element = Find-M2WElement -Target $Target -Root $Root -TimeoutSeconds $uiaTimeout
+    if ($element) {
+        return [pscustomobject]@{ Provider = 'UIAutomation'; Element = $element; Node = $null }
+    }
+    $node = Find-M2WJavaElement -Target $Target -Root $Root -TimeoutSeconds $TimeoutSeconds
+    if ($node) {
+        return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Element = $null; Node = $node }
+    }
+    return $null
+}
+
+function Get-M2WUnifiedBounds {
+    param([Parameter(Mandatory)]$Match)
+    if ($Match.Provider -eq 'UIAutomation') { return $Match.Element.Current.BoundingRectangle }
+    return [System.Windows.Rect]::new([double]$Match.Node.X, [double]$Match.Node.Y, [double]$Match.Node.Width, [double]$Match.Node.Height)
+}
+
+function Get-M2WUnifiedText {
+    param([Parameter(Mandatory)]$Match)
+    if ($Match.Provider -eq 'UIAutomation') { return Get-M2WElementText -Element $Match.Element }
+    return [string]$Match.Node.Name
+}
+
+function Invoke-M2WPointClick {
+    param([Parameter(Mandatory)][double]$X, [Parameter(Mandatory)][double]$Y)
+    [M2W.NativeMethods]::SetCursorPos([int][Math]::Round($X), [int][Math]::Round($Y)) | Out-Null
+    [M2W.NativeMethods]::mouse_event([M2W.NativeMethods]::LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+    [M2W.NativeMethods]::mouse_event([M2W.NativeMethods]::LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Invoke-M2WUnifiedClick {
+    param([Parameter(Mandatory)]$Match)
+    if ($Match.Provider -eq 'UIAutomation') {
+        Invoke-M2WElementClick -Element $Match.Element
+        return
+    }
+    $bounds = Get-M2WUnifiedBounds -Match $Match
+    if ($bounds.Width -le 0 -or $bounds.Height -le 0 -or $Match.Node.Offscreen) {
+        throw 'Java accessible target does not have visible clickable bounds.'
+    }
+    Invoke-M2WPointClick -X ($bounds.X + ($bounds.Width / 2)) -Y ($bounds.Y + ($bounds.Height / 2))
+}
+
 function Export-M2WUiTree {
     param(
         [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
@@ -304,12 +472,15 @@ function Export-M2WInteractionGraph {
         [int]$Limit = 5000
     )
     $treePath = [IO.Path]::ChangeExtension($Path, '.tree.json')
-    $tree = @(Export-M2WUiTree -Root $Root -Path $treePath -Limit $Limit)
+    $evidence = Export-M2WAccessibleTrees -Root $Root -UiAutomationPath $treePath -Limit $Limit
+    $tree = @($evidence.UiAutomationNodes)
     $actionableTypes = @('Button', 'CheckBox', 'ComboBox', 'Edit', 'Hyperlink', 'ListItem', 'MenuItem', 'RadioButton', 'TabItem', 'TreeItem')
-    $nodes = @($tree | Where-Object { $actionableTypes -contains $_.ControlType } | ForEach-Object {
+    $uiNodes = @($tree | Where-Object { $actionableTypes -contains $_.ControlType } | ForEach-Object {
         $target = [pscustomobject]@{ name = $_.Name; automationId = $_.AutomationId }
         $dangerous = Test-M2WDangerousTarget -Target $target
         [pscustomobject]@{
+            Id = "uia:$($_.Index)"
+            Provider = 'UIAutomation'
             Index = $_.Index
             Parent = $_.Parent
             Name = $_.Name
@@ -323,16 +494,60 @@ function Export-M2WInteractionGraph {
             SuggestedAction = $(if ($dangerous) { 'skip' } elseif ($_.ControlType -eq 'Edit') { 'inspect' } else { 'invoke' })
         }
     })
+    $javaNodes = @($evidence.JavaAccessBridge.Nodes | Where-Object {
+        $_.Actionable -or $actionableTypes -contains $_.ControlType
+    } | ForEach-Object {
+        $target = [pscustomobject]@{ name = $_.Name; automationId = '' }
+        $dangerous = Test-M2WDangerousTarget -Target $target
+        [pscustomobject]@{
+            Id = "jab:$($_.Index)"
+            Provider = 'JavaAccessBridge'
+            Index = $_.Index
+            Parent = $_.Parent
+            Name = $_.Name
+            Description = $_.Description
+            AutomationId = ''
+            ControlType = $_.ControlType
+            Role = $_.Role
+            Bounds = [pscustomobject]@{ X = $_.X; Y = $_.Y; Width = $_.Width; Height = $_.Height }
+            Enabled = $_.Enabled
+            Offscreen = $_.Offscreen
+            KeyboardFocusable = $_.KeyboardFocusable
+            Dangerous = $dangerous
+            SuggestedAction = $(if ($dangerous) { 'skip' } elseif ($_.ControlType -eq 'Edit') { 'inspect' } else { 'invoke' })
+        }
+    })
+    $nodes = @($uiNodes) + @($javaNodes)
+    $javaRoot = Test-M2WJavaUiRoot -Root $Root
+    $blocker = $null
+    if ($javaRoot -and @($javaNodes).Count -eq 0) {
+        $blocker = if ($evidence.JavaAccessBridge.Blocker) { [string]$evidence.JavaAccessBridge.Blocker } else { 'BLOCKED_JAVA_ACCESS_BRIDGE_UNAVAILABLE' }
+    }
+    elseif (@($nodes).Count -eq 0) {
+        $blocker = 'BLOCKED_INTERACTION_GRAPH_EMPTY'
+    }
     $graph = [pscustomobject]@{
         CreatedAt = (Get-Date).ToUniversalTime().ToString('o')
+        Status = $(if ($blocker) { 'BLOCKED' } else { 'READY' })
+        Blocker = $blocker
         Root = Convert-M2WElement -Element $Root
         Nodes = $nodes
-        DeniedDangerous = @($nodes | Where-Object Dangerous | Select-Object -ExpandProperty Index)
+        Providers = [pscustomobject]@{
+            UIAutomation = [pscustomobject]@{ Tree = $evidence.UiAutomationPath; Nodes = @($tree).Count; Actionable = @($uiNodes).Count }
+            JavaAccessBridge = [pscustomobject]@{
+                Tree = $evidence.JavaAccessBridgePath
+                Status = $evidence.JavaAccessBridge.Status
+                Blocker = $evidence.JavaAccessBridge.Blocker
+                Detail = $evidence.JavaAccessBridge.Detail
+                Nodes = @($evidence.JavaAccessBridge.Nodes).Count
+                Actionable = @($javaNodes).Count
+            }
+        }
+        DeniedDangerous = @($nodes | Where-Object Dangerous | Select-Object -ExpandProperty Id)
     }
     $directory = Split-Path -Parent $Path
     [IO.Directory]::CreateDirectory($directory) | Out-Null
     $graph | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $Path -Encoding UTF8
-    Remove-Item -LiteralPath $treePath -Force -ErrorAction SilentlyContinue
     return $graph
 }
 
@@ -432,32 +647,44 @@ function Test-M2WAssertion {
     )
     $target = Get-M2WValue -Object $Step -Name 'target' -Default $Step
     $condition = [string](Get-M2WValue -Object $Step -Name 'condition' -Default 'exists')
-    $element = Find-M2WElement -Target $target -Root $Window -TimeoutSeconds 5
+    $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 5
     switch ($condition) {
-        'exists' { return [pscustomobject]@{ Passed = [bool]$element; Detail = $(if ($element) { 'Element exists.' } else { 'Element not found.' }) } }
-        'notExists' { return [pscustomobject]@{ Passed = -not $element; Detail = $(if ($element) { 'Unexpected element exists.' } else { 'Element is absent.' }) } }
-        'enabled' { return [pscustomobject]@{ Passed = [bool]($element -and $element.Current.IsEnabled); Detail = 'Checked enabled state.' } }
-        'focusable' { return [pscustomobject]@{ Passed = [bool]($element -and $element.Current.IsKeyboardFocusable); Detail = 'Checked keyboard focusability.' } }
-        'focused' { return [pscustomobject]@{ Passed = [bool]($element -and $element.Current.HasKeyboardFocus); Detail = 'Checked keyboard focus.' } }
-        'visible' { return [pscustomobject]@{ Passed = [bool]($element -and -not $element.Current.IsOffscreen); Detail = 'Checked visible state.' } }
+        'exists' { return [pscustomobject]@{ Passed = [bool]$match; Detail = $(if ($match) { "Element exists through $($match.Provider)." } else { 'Element not found.' }) } }
+        'notExists' { return [pscustomobject]@{ Passed = -not $match; Detail = $(if ($match) { 'Unexpected element exists.' } else { 'Element is absent.' }) } }
+        'enabled' {
+            $enabled = [bool]($match -and $(if ($match.Provider -eq 'UIAutomation') { $match.Element.Current.IsEnabled } else { $match.Node.Enabled }))
+            return [pscustomobject]@{ Passed = $enabled; Detail = 'Checked enabled state.' }
+        }
+        'focusable' {
+            $focusable = [bool]($match -and $(if ($match.Provider -eq 'UIAutomation') { $match.Element.Current.IsKeyboardFocusable } else { $match.Node.KeyboardFocusable }))
+            return [pscustomobject]@{ Passed = $focusable; Detail = 'Checked keyboard focusability.' }
+        }
+        'focused' {
+            $focused = [bool]($match -and $(if ($match.Provider -eq 'UIAutomation') { $match.Element.Current.HasKeyboardFocus } else { $match.Node.HasKeyboardFocus }))
+            return [pscustomobject]@{ Passed = $focused; Detail = 'Checked keyboard focus.' }
+        }
+        'visible' {
+            $visible = [bool]($match -and -not $(if ($match.Provider -eq 'UIAutomation') { $match.Element.Current.IsOffscreen } else { $match.Node.Offscreen }))
+            return [pscustomobject]@{ Passed = $visible; Detail = 'Checked visible state.' }
+        }
         'textEquals' {
             $expected = [string](Get-M2WValue -Object $Step -Name 'value' -Default '')
-            $actual = if ($element) { Get-M2WElementText -Element $element } else { '' }
-            return [pscustomobject]@{ Passed = [bool]($element -and $actual -eq $expected); Detail = "Expected '$expected'; received '$actual'." }
+            $actual = if ($match) { Get-M2WUnifiedText -Match $match } else { '' }
+            return [pscustomobject]@{ Passed = [bool]($match -and $actual -eq $expected); Detail = "Expected '$expected'; received '$actual'." }
         }
         'withinWindow' {
-            $passed = [bool]($element -and (Test-M2WRectContained -Child $element.Current.BoundingRectangle -Parent $Window.Current.BoundingRectangle))
+            $passed = [bool]($match -and (Test-M2WRectContained -Child (Get-M2WUnifiedBounds -Match $match) -Parent $Window.Current.BoundingRectangle))
             return [pscustomobject]@{ Passed = $passed; Detail = 'Checked element bounds against owning window.' }
         }
         'noOverlap' {
             $otherTarget = Get-M2WValue -Object $Step -Name 'otherTarget'
             if (-not $otherTarget) { throw 'noOverlap requires otherTarget.' }
-            $other = Find-M2WElement -Target $otherTarget -Root $Window -TimeoutSeconds 5
-            if (-not $element -or -not $other) {
+            $other = Find-M2WUnifiedElement -Target $otherTarget -Root $Window -TimeoutSeconds 5
+            if (-not $match -or -not $other) {
                 return [pscustomobject]@{ Passed = $false; Detail = 'One or both overlap targets were not found.' }
             }
             $tolerance = [double](Get-M2WValue -Object $Step -Name 'tolerancePixels' -Default 2)
-            $area = Get-M2WRectOverlapArea -First $element.Current.BoundingRectangle -Second $other.Current.BoundingRectangle
+            $area = Get-M2WRectOverlapArea -First (Get-M2WUnifiedBounds -Match $match) -Second (Get-M2WUnifiedBounds -Match $other)
             return [pscustomobject]@{ Passed = [bool]($area -le ($tolerance * $tolerance)); Detail = "Overlap area: $area pixel(s)." }
         }
         default { throw "Unknown assertion condition: $condition" }
@@ -496,18 +723,26 @@ function Invoke-M2WStep {
             $shot = Join-Path $RunDirectory "screenshots\$ScenarioId-$prefix.png"
             $tree = Join-Path $RunDirectory "ui-trees\$ScenarioId-$prefix.json"
             Save-M2WScreenshot -Path $shot -Window $Window | Out-Null
-            Export-M2WUiTree -Path $tree -Root $Window | Out-Null
-            return [pscustomobject]@{ Status = 'PASS'; Action = $action; Screenshot = $shot; UiTree = $tree; Summary = 'Captured native evidence.' }
+            $trees = Export-M2WAccessibleTrees -Root $Window -UiAutomationPath $tree
+            return [pscustomobject]@{
+                Status = 'PASS'
+                Action = $action
+                Screenshot = $shot
+                UiTree = $tree
+                JavaUiTree = $trees.JavaAccessBridgePath
+                Summary = 'Captured native screenshot, UI Automation, and Java accessibility evidence.'
+            }
         }
         'discover' {
             $graphPath = Join-Path $RunDirectory "interaction-graphs\$ScenarioId-$prefix.json"
             $graph = Export-M2WInteractionGraph -Root $Window -Path $graphPath
             return [pscustomobject]@{
-                Status = 'PASS'
+                Status = $(if ($graph.Status -eq 'READY') { 'PASS' } else { 'BLOCKED' })
                 Action = $action
                 InteractionGraph = $graphPath
                 DiscoveredControls = @($graph.Nodes).Count
-                Summary = 'Discovered actionable controls without invoking unknown targets.'
+                Blocker = $graph.Blocker
+                Summary = $(if ($graph.Status -eq 'READY') { 'Discovered actionable controls without invoking unknown targets.' } else { "Interaction graph is incomplete: $($graph.Blocker)" })
             }
         }
         'assert' {
@@ -519,23 +754,23 @@ function Invoke-M2WStep {
             if ((Test-M2WDangerousTarget -Target $target) -and -not $AllowDestructiveActions) {
                 return [pscustomobject]@{ Status = 'BLOCKED'; Action = $action; Summary = 'Dangerous target denied by profile policy.'; Blocker = 'BLOCKED_DANGEROUS_ACTION' }
             }
-            $element = Find-M2WElement -Target $target -Root $Window -TimeoutSeconds 10
-            if (-not $element) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Click target not found.' } }
-            Invoke-M2WElementClick -Element $element
+            $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 10
+            if (-not $match) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Click target not found.' } }
+            Invoke-M2WUnifiedClick -Match $match
             Start-Sleep -Milliseconds 350
-            return [pscustomobject]@{ Status = 'PASS'; Action = $action; Summary = 'Invoked target.' }
+            return [pscustomobject]@{ Status = 'PASS'; Action = $action; Summary = "Invoked target through $($match.Provider)." }
         }
         'type' {
             $target = Get-M2WValue -Object $Step -Name 'target'
-            $element = Find-M2WElement -Target $target -Root $Window -TimeoutSeconds 10
-            if (-not $element) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Text target not found.' } }
+            $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 10
+            if (-not $match) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Text target not found.' } }
             $text = [string](Get-M2WValue -Object $Step -Name 'text' -Default '')
             $pattern = $null
-            if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -and -not ([System.Windows.Automation.ValuePattern]$pattern).Current.IsReadOnly) {
+            if ($match.Provider -eq 'UIAutomation' -and $match.Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -and -not ([System.Windows.Automation.ValuePattern]$pattern).Current.IsReadOnly) {
                 ([System.Windows.Automation.ValuePattern]$pattern).SetValue($text)
             }
             else {
-                $element.SetFocus()
+                if ($match.Provider -eq 'UIAutomation') { $match.Element.SetFocus() } else { Invoke-M2WUnifiedClick -Match $match }
                 [System.Windows.Forms.SendKeys]::SendWait('^a')
                 $escaped = $text.Replace('{', '{{}').Replace('}', '{}}').Replace('+', '{+}').Replace('^', '{^}').Replace('%', '{%}').Replace('~', '{~}')
                 [System.Windows.Forms.SendKeys]::SendWait($escaped)
@@ -571,8 +806,11 @@ Export-ModuleMember -Function @(
     'Find-M2WElement',
     'Convert-M2WElement',
     'Export-M2WUiTree',
+    'Export-M2WAccessibleTrees',
     'Export-M2WInteractionGraph',
     'Save-M2WScreenshot',
+    'Find-M2WUnifiedElement',
+    'Find-M2WJavaElement',
     'Invoke-M2WStep',
     'Test-M2WAssertion',
     'Test-M2WDangerousTarget',

@@ -91,7 +91,7 @@ UU CLI discovers devices, starts connections, and opens a remote terminal. It is
 Ready-to-adapt profiles live in [`examples/`](examples/):
 
 - LizzieYzy Next: a real large Swing application with dynamic title matching and interaction-graph discovery.
-- Java Swing: bundled JVM, modal ownership, menus, EDT response, fonts and DPI.
+- Java Swing: direct Java Access Bridge control trees, bundled JVM, modal ownership, menus, EDT response, fonts and DPI.
 - Electron: first paint, renderer/GPU health, native dialogs and packaged resources.
 - Tauri: WebView2, native commands, file dialogs, decorations and updater paths.
 - .NET: WinForms/WPF scaling, runtime architecture, accessibility and self-contained publishing.

@@ -91,7 +91,7 @@ function Save-StepEvidence {
     $tree = Join-Path $RunDirectory "ui-trees\$ScenarioId-$prefix.json"
     try {
         Save-M2WScreenshot -Path $shot -Window $Window | Out-Null
-        Export-M2WUiTree -Path $tree -Root $Window | Out-Null
+        $trees = Export-M2WAccessibleTrees -Root $Window -UiAutomationPath $tree
         $focusedName = ''
         try {
             $focusedElement = [System.Windows.Automation.AutomationElement]::FocusedElement
@@ -101,6 +101,13 @@ function Save-StepEvidence {
         $StepResult | Add-Member -NotePropertyName Evidence -NotePropertyValue ([pscustomobject]@{
             Screenshot = $shot
             UiTree = $tree
+            JavaUiTree = $trees.JavaAccessBridgePath
+            AccessibilityProviders = [pscustomobject]@{
+                UIAutomationNodes = @($trees.UiAutomationNodes).Count
+                JavaAccessBridgeStatus = $trees.JavaAccessBridge.Status
+                JavaAccessBridgeNodes = @($trees.JavaAccessBridge.Nodes).Count
+                JavaAccessBridgeBlocker = $trees.JavaAccessBridge.Blocker
+            }
             Focused = $focusedName
             CapturedAt = (Get-Date).ToUniversalTime().ToString('o')
         }) -Force
