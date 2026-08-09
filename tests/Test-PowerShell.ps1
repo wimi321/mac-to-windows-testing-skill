@@ -59,6 +59,10 @@ $hiddenDiagnosticMatched = & $uiAutomationModule { param($node, $target) Test-M2
 if (-not $visibleMatched) { throw 'Visible Java control did not match its selector.' }
 if ($hiddenMatched) { throw 'Hidden Java control unexpectedly matched the default selector.' }
 if (-not $hiddenDiagnosticMatched) { throw 'Explicit offscreen Java diagnostic selector did not match.' }
+$winFormsButton = [pscustomobject]@{ ControlType = 'Pane'; ClassName = 'WindowsForms10.BUTTON.app.0.test' }
+$winFormsLabel = [pscustomobject]@{ ControlType = 'Pane'; ClassName = 'WindowsForms10.STATIC.app.0.test' }
+if ((Get-M2WEffectiveUiControlType -Node $winFormsButton) -ne 'Button') { throw 'WinForms button type normalization failed.' }
+if ((Get-M2WEffectiveUiControlType -Node $winFormsLabel) -ne 'Pane') { throw 'WinForms static text was incorrectly classified as actionable.' }
 
 $settingsNode = [pscustomobject]@{ Name = 'Open settings'; ControlType = 'Button'; Dangerous = $false; Enabled = $true; Offscreen = $false }
 $paymentNode = [pscustomobject]@{ Name = 'Pay now'; ControlType = 'Button'; Dangerous = $true; Enabled = $true; Offscreen = $false }

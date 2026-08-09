@@ -528,6 +528,19 @@ function Export-M2WUiTree {
     return $output
 }
 
+function Get-M2WEffectiveUiControlType {
+    param([Parameter(Mandatory)]$Node)
+    $reported = [string]$Node.ControlType
+    if ($reported -ne 'Pane') { return $reported }
+    $className = ([string]$Node.ClassName).ToUpperInvariant()
+    if ($className -match '(?:^|\.)BUTTON(?:\.|$)') { return 'Button' }
+    if ($className -match '(?:^|\.)EDIT(?:\.|$)') { return 'Edit' }
+    if ($className -match '(?:^|\.)COMBOBOX(?:\.|$)') { return 'ComboBox' }
+    if ($className -match '(?:^|\.)CHECKBOX(?:\.|$)') { return 'CheckBox' }
+    if ($className -match '(?:^|\.)RADIOBUTTON(?:\.|$)') { return 'RadioButton' }
+    return $reported
+}
+
 function Export-M2WInteractionGraph {
     param(
         [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
@@ -538,23 +551,28 @@ function Export-M2WInteractionGraph {
     $evidence = Export-M2WAccessibleTrees -Root $Root -UiAutomationPath $treePath -Limit $Limit
     $tree = @($evidence.UiAutomationNodes)
     $actionableTypes = @('Button', 'CheckBox', 'ComboBox', 'Edit', 'Hyperlink', 'ListItem', 'MenuItem', 'RadioButton', 'TabItem', 'TreeItem')
-    $uiNodes = @($tree | Where-Object { $actionableTypes -contains $_.ControlType } | ForEach-Object {
-        $target = [pscustomobject]@{ name = $_.Name; automationId = $_.AutomationId }
-        $dangerous = Test-M2WDangerousTarget -Target $target
-        [pscustomobject]@{
-            Id = "uia:$($_.Index)"
-            Provider = 'UIAutomation'
-            Index = $_.Index
-            Parent = $_.Parent
-            Name = $_.Name
-            AutomationId = $_.AutomationId
-            ControlType = $_.ControlType
-            Bounds = $_.Bounds
-            Enabled = $_.IsEnabled
-            Offscreen = $_.IsOffscreen
-            KeyboardFocusable = $_.IsKeyboardFocusable
-            Dangerous = $dangerous
-            SuggestedAction = $(if ($dangerous) { 'skip' } elseif ($_.ControlType -eq 'Edit') { 'inspect' } else { 'invoke' })
+    $uiNodes = @($tree | ForEach-Object {
+        $effectiveType = Get-M2WEffectiveUiControlType -Node $_
+        if ($actionableTypes -contains $effectiveType) {
+            $target = [pscustomobject]@{ name = $_.Name; automationId = $_.AutomationId }
+            $dangerous = Test-M2WDangerousTarget -Target $target
+            [pscustomobject]@{
+                Id = "uia:$($_.Index)"
+                Provider = 'UIAutomation'
+                Index = $_.Index
+                Parent = $_.Parent
+                Name = $_.Name
+                AutomationId = $_.AutomationId
+                ControlType = $effectiveType
+                ReportedControlType = $_.ControlType
+                ClassName = $_.ClassName
+                Bounds = $_.Bounds
+                Enabled = $_.IsEnabled
+                Offscreen = $_.IsOffscreen
+                KeyboardFocusable = $_.IsKeyboardFocusable
+                Dangerous = $dangerous
+                SuggestedAction = $(if ($dangerous) { 'skip' } elseif ($effectiveType -eq 'Edit') { 'inspect' } else { 'invoke' })
+            }
         }
     })
     $javaNodes = @($evidence.JavaAccessBridge.Nodes | Where-Object {
@@ -776,7 +794,8 @@ function Invoke-M2WSafeExploration {
     if ($graph.Status -ne 'READY') {
         return [pscustomobject]@{
             Status = 'BLOCKED'; Blocker = $graph.Blocker; Graph = $graphPath; Audit = $auditPath
-            CandidateCount = 0; InvokedCount = 0; SkippedDangerous = @($graph.DeniedDangerous); Results = @()
+            CandidateCount = 0; InvokedCount = 0; StateChangeCount = 0
+            SkippedDangerous = @($graph.DeniedDangerous); Results = @()
         }
     }
 
@@ -1161,6 +1180,7 @@ Export-ModuleMember -Function @(
     'Export-M2WUiTree',
     'Export-M2WAccessibleTrees',
     'Export-M2WInteractionGraph',
+    'Get-M2WEffectiveUiControlType',
     'Export-M2WDeterministicAudit',
     'Get-M2WSafeControlCategory',
     'Invoke-M2WSafeExploration',
