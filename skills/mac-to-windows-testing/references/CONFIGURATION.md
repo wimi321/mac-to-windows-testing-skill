@@ -14,6 +14,8 @@ Required sections:
 
 Commands are explicit strings executed by the Windows test account. Treat any changed command as a new trust decision. Profiles must not contain secrets.
 
+Targets may use exact `name`, case-insensitive `nameContains`, `nameRegex`, `automationId`, and `controlType`. Prefer stable automation IDs or accessible names. Use `nameContains` for application titles that include a version, document, or engine name; avoid screen coordinates.
+
 ## Run manifest
 
 The controller compiles YAML into immutable JSON containing:

@@ -28,6 +28,9 @@ if (-not (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Delete acc
 $deleteAccountChinese = -join ([char]0x5220, [char]0x9664, [char]0x8d26, [char]0x6237)
 if (-not (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = $deleteAccountChinese }))) { throw 'Localized danger classifier test failed.' }
 if (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Open settings' })) { throw 'Safe control was misclassified.' }
+if (-not (Test-M2WTargetName -ActualName 'LizzieYzy Next - sample.sgf' -Target ([pscustomobject]@{ nameContains = 'lizzieyzy next' }))) { throw 'Case-insensitive nameContains failed.' }
+if (-not (Test-M2WTargetName -ActualName 'LizzieYzy Next next-2026.08' -Target ([pscustomobject]@{ nameRegex = '^LizzieYzy Next' }))) { throw 'nameRegex failed.' }
+if (Test-M2WTargetName -ActualName 'Unrelated App' -Target ([pscustomobject]@{ nameContains = 'LizzieYzy Next' })) { throw 'nameContains accepted an unrelated window.' }
 
 $probeInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $probeInfo.FileName = 'cmd.exe'

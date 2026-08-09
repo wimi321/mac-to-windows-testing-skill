@@ -67,6 +67,8 @@
       "minProperties": 1,
       "properties": {
         "name": { "type": "string" },
+        "nameContains": { "type": "string", "minLength": 1 },
+        "nameRegex": { "type": "string", "minLength": 1 },
         "automationId": { "type": "string" },
         "controlType": { "type": "string" }
       },

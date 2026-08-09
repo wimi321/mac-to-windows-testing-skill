@@ -103,6 +103,19 @@ class ControllerTests(unittest.TestCase):
         for path in sorted((ROOT / 'schemas').glob('*.json')):
             self.assertIsInstance(json.loads(path.read_text(encoding='utf-8')), dict)
 
+    def test_profile_schema_supports_dynamic_window_titles(self) -> None:
+        schema = json.loads((ROOT / 'schemas' / 'profile.schema.json').read_text(encoding='utf-8'))
+        target = schema['$defs']['target']['properties']
+        self.assertIn('nameContains', target)
+        self.assertIn('nameRegex', target)
+
+        profile = M2W.load_profile(ROOT / 'examples' / 'fixture-clean.yaml')
+        profile['scenarios'][0]['window'] = {'nameContains': 'Mac-to-Windows'}
+        M2W.validate_profile(profile)
+        profile['scenarios'][0]['window'] = {'nameRegex': '['}
+        with self.assertRaises(M2W.CliError):
+            M2W.validate_profile(profile)
+
 
 if __name__ == '__main__':
     unittest.main()

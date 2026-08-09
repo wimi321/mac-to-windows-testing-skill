@@ -178,6 +178,26 @@ function New-M2WTargetCondition {
     return [System.Windows.Automation.AndCondition]::new($conditions.ToArray())
 }
 
+function Test-M2WTargetName {
+    param([string]$ActualName, [Parameter(Mandatory)]$Target)
+    $contains = Get-M2WValue -Object $Target -Name 'nameContains'
+    $pattern = Get-M2WValue -Object $Target -Name 'nameRegex'
+    if ($contains -and $ActualName.IndexOf([string]$contains, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $false
+    }
+    if ($pattern) {
+        try {
+            if (-not [regex]::IsMatch($ActualName, [string]$pattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+                return $false
+            }
+        }
+        catch {
+            throw "Invalid target nameRegex '$pattern': $($_.Exception.Message)"
+        }
+    }
+    return $true
+}
+
 function Find-M2WElement {
     param(
         [Parameter(Mandatory)]$Target,
@@ -186,11 +206,24 @@ function Find-M2WElement {
     )
     Initialize-M2WUiAutomation
     $condition = New-M2WTargetCondition -Target $Target
+    $requiresNameFilter = [bool](
+        (Get-M2WValue -Object $Target -Name 'nameContains') -or
+        (Get-M2WValue -Object $Target -Name 'nameRegex')
+    )
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         try {
-            $element = $Root.FindFirst([System.Windows.Automation.TreeScope]::Subtree, $condition)
-            if ($element) { return $element }
+            if (-not $requiresNameFilter) {
+                $element = $Root.FindFirst([System.Windows.Automation.TreeScope]::Subtree, $condition)
+                if ($element) { return $element }
+            }
+            else {
+                $elements = $Root.FindAll([System.Windows.Automation.TreeScope]::Subtree, $condition)
+                foreach ($element in $elements) {
+                    $actualName = ''; try { $actualName = [string]$element.Current.Name } catch { }
+                    if (Test-M2WTargetName -ActualName $actualName -Target $Target) { return $element }
+                }
+            }
         }
         catch { }
         Start-Sleep -Milliseconds 200
@@ -534,6 +567,7 @@ Export-ModuleMember -Function @(
     'Get-M2WValue',
     'Get-M2WSessionState',
     'Get-M2WEnvironment',
+    'Test-M2WTargetName',
     'Find-M2WElement',
     'Convert-M2WElement',
     'Export-M2WUiTree',

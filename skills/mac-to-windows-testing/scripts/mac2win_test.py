@@ -261,22 +261,36 @@ def validate_profile(profile: dict[str, Any]) -> None:
     allowed_actions = {"wait", "discover", "screenshot", "assert", "click", "type", "shortcut", "close"}
     allowed_assertions = {"exists", "notExists", "enabled", "focusable", "focused", "visible", "textEquals", "withinWindow", "noOverlap"}
     seen_ids: set[str] = set()
+
+    def validate_target(target: Any, label: str) -> None:
+        if not isinstance(target, dict) or not target:
+            raise CliError(f"{label} needs a target selector")
+        pattern = target.get("nameRegex")
+        if pattern:
+            try:
+                re.compile(str(pattern))
+            except re.error as exc:
+                raise CliError(f"{label} has invalid nameRegex: {exc}") from exc
+
     for scenario in profile["scenarios"]:
         if not isinstance(scenario, dict) or not scenario.get("id") or not isinstance(scenario.get("steps"), list):
             raise CliError("Every scenario needs an id and a steps list")
         if scenario["id"] in seen_ids:
             raise CliError(f"Duplicate scenario id: {scenario['id']}")
         seen_ids.add(scenario["id"])
-        if not isinstance(scenario.get("window"), dict):
-            raise CliError(f"Scenario {scenario['id']} needs a window selector")
-        if not any(scenario["window"].get(key) for key in ("name", "automationId")):
-            raise CliError(f"Scenario {scenario['id']} window needs name or automationId")
+        validate_target(scenario.get("window"), f"Scenario {scenario['id']} window")
+        if not any(scenario["window"].get(key) for key in ("name", "nameContains", "nameRegex", "automationId")):
+            raise CliError(f"Scenario {scenario['id']} window needs a name selector or automationId")
         for step in scenario["steps"]:
             if not isinstance(step, dict) or step.get("action") not in allowed_actions:
                 raise CliError(f"Scenario {scenario['id']} has an unsupported action")
             action = step["action"]
             if action in {"click", "type", "assert"} and not isinstance(step.get("target"), dict):
                 raise CliError(f"Scenario {scenario['id']} action {action} needs a target")
+            if isinstance(step.get("target"), dict):
+                validate_target(step["target"], f"Scenario {scenario['id']} action {action}")
+            if isinstance(step.get("otherTarget"), dict):
+                validate_target(step["otherTarget"], f"Scenario {scenario['id']} otherTarget")
             if action == "assert" and step.get("condition", "exists") not in allowed_assertions:
                 raise CliError(f"Scenario {scenario['id']} has an unsupported assertion")
 
