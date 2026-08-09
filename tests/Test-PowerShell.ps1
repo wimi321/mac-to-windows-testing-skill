@@ -25,7 +25,7 @@ if ([M2W.JavaAccessBridgeClient]::ContextInfoSize -ne 6188) {
     throw "Java Access Bridge context layout mismatch: $([M2W.JavaAccessBridgeClient]::ContextInfoSize)"
 }
 
-Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force
+$uiAutomationModule = Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force -PassThru
 Initialize-M2WUiAutomation
 $first = [System.Windows.Rect]::new(0, 0, 100, 100)
 $second = [System.Windows.Rect]::new(50, 50, 100, 100)
@@ -38,6 +38,15 @@ if (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Open settings' }
 if (-not (Test-M2WTargetName -ActualName 'LizzieYzy Next - sample.sgf' -Target ([pscustomobject]@{ nameContains = 'lizzieyzy next' }))) { throw 'Case-insensitive nameContains failed.' }
 if (-not (Test-M2WTargetName -ActualName 'LizzieYzy Next next-2026.08' -Target ([pscustomobject]@{ nameRegex = '^LizzieYzy Next' }))) { throw 'nameRegex failed.' }
 if (Test-M2WTargetName -ActualName 'Unrelated App' -Target ([pscustomobject]@{ nameContains = 'LizzieYzy Next' })) { throw 'nameContains accepted an unrelated window.' }
+$javaTarget = [pscustomobject]@{ name = 'One-click setup'; controlType = 'Button' }
+$visibleJavaNode = [pscustomobject]@{ Name = 'One-click setup'; ControlType = 'Button'; Offscreen = $false; Width = 120; Height = 30 }
+$hiddenJavaNode = [pscustomobject]@{ Name = 'One-click setup'; ControlType = 'Button'; Offscreen = $true; Width = -1; Height = -1 }
+$visibleMatched = & $uiAutomationModule { param($node, $target) Test-M2WJavaNodeTarget -Node $node -Target $target } $visibleJavaNode $javaTarget
+$hiddenMatched = & $uiAutomationModule { param($node, $target) Test-M2WJavaNodeTarget -Node $node -Target $target } $hiddenJavaNode $javaTarget
+$hiddenDiagnosticMatched = & $uiAutomationModule { param($node, $target) Test-M2WJavaNodeTarget -Node $node -Target $target } $hiddenJavaNode ([pscustomobject]@{ name = 'One-click setup'; controlType = 'Button'; includeOffscreen = $true })
+if (-not $visibleMatched) { throw 'Visible Java control did not match its selector.' }
+if ($hiddenMatched) { throw 'Hidden Java control unexpectedly matched the default selector.' }
+if (-not $hiddenDiagnosticMatched) { throw 'Explicit offscreen Java diagnostic selector did not match.' }
 
 $probeInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $probeInfo.FileName = 'cmd.exe'

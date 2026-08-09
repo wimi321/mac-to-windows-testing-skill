@@ -347,6 +347,8 @@ function Test-M2WJavaNodeTarget {
     param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)]$Target)
     $automationId = Get-M2WValue -Object $Target -Name 'automationId'
     if ($automationId) { return $false }
+    $includeOffscreen = [bool](Get-M2WValue -Object $Target -Name 'includeOffscreen' -Default $false)
+    if (-not $includeOffscreen -and ($Node.Offscreen -or $Node.Width -le 0 -or $Node.Height -le 0)) { return $false }
     $expectedName = Get-M2WValue -Object $Target -Name 'name'
     if ($null -ne $expectedName -and [string]$Node.Name -ne [string]$expectedName) { return $false }
     $contains = Get-M2WValue -Object $Target -Name 'nameContains'
