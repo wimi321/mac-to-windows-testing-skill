@@ -39,6 +39,7 @@ Initialize-M2WUiAutomation
 if (-not [M2W.NativeMethods].GetMethod('SetForegroundWindow')) { throw 'Native foreground activation is unavailable.' }
 if (-not [M2W.NativeMethods].GetMethod('ShowWindowAsync')) { throw 'Native window restore is unavailable.' }
 if (-not [M2W.NativeMethods].GetMethod('ActivateWindow')) { throw 'Foreground-thread window activation is unavailable.' }
+if (-not [M2W.WindowActivationV1].GetMethod('ActivateWindow')) { throw 'Versioned window activation is unavailable.' }
 $first = [System.Windows.Rect]::new(0, 0, 100, 100)
 $second = [System.Windows.Rect]::new(50, 50, 100, 100)
 if ((Get-M2WRectOverlapArea -First $first -Second $second) -ne 2500) { throw 'Overlap geometry test failed.' }
