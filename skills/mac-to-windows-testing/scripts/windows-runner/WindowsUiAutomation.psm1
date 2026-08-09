@@ -463,6 +463,28 @@ function Invoke-M2WPointClick {
     [M2W.NativeMethods]::mouse_event([M2W.NativeMethods]::LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
 }
 
+function Get-M2WJavaChildPath {
+    param($Node)
+    if ($null -eq $Node) {
+        return [pscustomobject]@{ Available = $false; Path = [int[]]@() }
+    }
+    $property = $Node.PSObject.Properties['ChildPath']
+    if (-not $property) {
+        return [pscustomobject]@{ Available = $false; Path = [int[]]@() }
+    }
+
+    $path = [System.Collections.Generic.List[int]]::new()
+    foreach ($value in @($property.Value)) {
+        try { $childIndex = [int]$value }
+        catch { return [pscustomobject]@{ Available = $false; Path = [int[]]@() } }
+        if ($childIndex -lt 0) {
+            return [pscustomobject]@{ Available = $false; Path = [int[]]@() }
+        }
+        $path.Add($childIndex)
+    }
+    return [pscustomobject]@{ Available = $true; Path = [int[]]$path.ToArray() }
+}
+
 function Invoke-M2WUnifiedClick {
     param([Parameter(Mandatory)]$Match)
     if ($Match.Provider -eq 'UIAutomation') {
@@ -471,20 +493,23 @@ function Invoke-M2WUnifiedClick {
     }
     $windowHandle = Get-M2WRootNativeHandle -Root $Match.Root
     $processId = Get-M2WRootProcessId -Root $Match.Root
-    $accessibleAction = Invoke-M2WJavaAccessibleAction `
-        -WindowHandle $windowHandle `
-        -ProcessId $processId `
-        -ChildPath @($Match.Node.ChildPath) `
-        -PreferredAction 'click'
-    if ($accessibleAction.Status -eq 'PASS') {
-        return [pscustomobject]@{
-            Provider = 'JavaAccessBridge'
-            Method = 'AccessibleAction'
-            Action = $accessibleAction.Action
+    $childPath = Get-M2WJavaChildPath -Node $Match.Node
+    if ($childPath.Available) {
+        $accessibleAction = Invoke-M2WJavaAccessibleAction `
+            -WindowHandle $windowHandle `
+            -ProcessId $processId `
+            -ChildPath ([int[]]$childPath.Path) `
+            -PreferredAction 'click'
+        if ($accessibleAction.Status -eq 'PASS') {
+            return [pscustomobject]@{
+                Provider = 'JavaAccessBridge'
+                Method = 'AccessibleAction'
+                Action = $accessibleAction.Action
+            }
         }
-    }
-    if ($accessibleAction.Status -eq 'FAIL' -or $accessibleAction.Status -eq 'BLOCKED') {
-        throw "Java accessible action failed: $($accessibleAction.Detail)"
+        if ($accessibleAction.Status -eq 'FAIL' -or $accessibleAction.Status -eq 'BLOCKED') {
+            throw "Java accessible action failed: $($accessibleAction.Detail)"
+        }
     }
     if ($windowHandle -ne [IntPtr]::Zero) {
         if (-not [M2W.NativeMethods]::ActivateWindow($windowHandle)) {
