@@ -340,6 +340,57 @@ function Find-M2WElement {
     return $null
 }
 
+function Test-M2WTopLevelWindowCandidate {
+    param(
+        [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Element,
+        [Parameter(Mandatory)]$Target
+    )
+    try {
+        $name = [string]$Element.Current.Name
+        $className = [string]$Element.Current.ClassName
+        $controlType = [string]$Element.Current.ControlType.ProgrammaticName.Replace('ControlType.', '')
+        $bounds = $Element.Current.BoundingRectangle
+        if ($Element.Current.IsOffscreen -or $bounds.Width -le 0 -or $bounds.Height -le 0) { return $false }
+    }
+    catch { return $false }
+
+    $expectedName = Get-M2WValue -Object $Target -Name 'name'
+    if ($null -ne $expectedName -and $name -ne [string]$expectedName) { return $false }
+    if (-not (Test-M2WTargetName -ActualName $name -Target $Target)) { return $false }
+
+    $requestedType = [string](Get-M2WValue -Object $Target -Name 'controlType' -Default 'Window')
+    if ($requestedType -and $requestedType -ne 'Window' -and $controlType -ne $requestedType) { return $false }
+    if ($requestedType -eq 'Window') {
+        $isSwingTopLevel = $className -match '^(?:SunAwt|javax\.swing|java\.awt).*(?:Frame|Dialog|Window)'
+        if ($controlType -ne 'Window' -and -not $isSwingTopLevel) { return $false }
+    }
+    return $true
+}
+
+function Find-M2WTopLevelWindow {
+    param(
+        [Parameter(Mandatory)]$Target,
+        [int]$TimeoutSeconds = 20
+    )
+    Initialize-M2WUiAutomation
+    $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $candidates = $desktop.FindAll(
+                [System.Windows.Automation.TreeScope]::Children,
+                [System.Windows.Automation.Condition]::TrueCondition
+            )
+            foreach ($candidate in $candidates) {
+                if (Test-M2WTopLevelWindowCandidate -Element $candidate -Target $Target) { return $candidate }
+            }
+        }
+        catch { }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $null
+}
+
 function Convert-M2WElement {
     param([Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Element)
     try { $bounds = $Element.Current.BoundingRectangle } catch { $bounds = [System.Windows.Rect]::Empty }
@@ -1355,6 +1406,7 @@ Export-ModuleMember -Function @(
     'Get-M2WEnvironment',
     'Test-M2WTargetName',
     'Find-M2WElement',
+    'Find-M2WTopLevelWindow',
     'Convert-M2WElement',
     'Export-M2WUiTree',
     'Export-M2WAccessibleTrees',

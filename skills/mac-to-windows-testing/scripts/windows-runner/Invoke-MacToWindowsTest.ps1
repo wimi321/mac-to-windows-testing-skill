@@ -201,7 +201,7 @@ try {
         if (-not $windowTarget.PSObject.Properties['controlType']) {
             $windowTarget | Add-Member -NotePropertyName controlType -NotePropertyValue 'Window'
         }
-        $window = Find-M2WElement -Target $windowTarget -TimeoutSeconds 20
+        $window = Find-M2WTopLevelWindow -Target $windowTarget -TimeoutSeconds 20
         if (-not $window) {
             $scenarioResult.status = 'FAIL'
             $scenarioResult.summary = 'Expected application window was not found.'
