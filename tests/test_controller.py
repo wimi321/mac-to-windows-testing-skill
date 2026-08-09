@@ -23,6 +23,17 @@ class ControllerTests(unittest.TestCase):
             profile = M2W.load_profile(path)
             M2W.validate_profile(profile)
 
+    def test_fixture_profiles_use_the_native_uia_label_name(self) -> None:
+        expected_name = 'Evidence summary is ready.'
+        for filename in ('fixture.yaml', 'fixture-clean.yaml'):
+            profile = M2W.load_profile(ROOT / 'examples' / filename)
+            target_names = {
+                step.get('target', {}).get('name')
+                for scenario in profile['scenarios']
+                for step in scenario['steps']
+            }
+            self.assertIn(expected_name, target_names)
+
     def test_redacts_common_credentials_and_identity(self) -> None:
         value = 'password=hello token:abc 13812345678 test@example.com 192.168.1.9 C:\\Users\\Alice\\x'
         redacted = M2W.redact_text(value)

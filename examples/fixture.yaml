@@ -77,6 +77,6 @@ scenarios:
     steps:
       - action: "assert"
         target:
-          name: "Content ready"
+          name: "Evidence summary is ready."
         condition: "exists"
         checkpoint: "blank"

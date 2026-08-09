@@ -45,7 +45,7 @@ scenarios:
         value: "Completed"
       - action: "assert"
         target:
-          name: "Content ready"
+          name: "Evidence summary is ready."
         condition: "exists"
       - action: "screenshot"
         checkpoint: "clean"
