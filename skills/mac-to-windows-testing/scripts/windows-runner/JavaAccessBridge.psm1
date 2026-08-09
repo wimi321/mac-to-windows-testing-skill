@@ -145,12 +145,14 @@ namespace M2W {
       var result = new List<JavaAccessibleNode>();
       var queue = new Queue<QueueEntry>();
       var seen = new HashSet<long>();
+      var references = new List<long>();
       queue.Enqueue(new QueueEntry { Context = rootContext, Parent = -1, Depth = 0 });
       seen.Add(rootContext);
+      references.Add(rootContext);
 
-      while (queue.Count > 0 && result.Count < limit) {
-        QueueEntry entry = queue.Dequeue();
-        try {
+      try {
+        while (queue.Count > 0 && result.Count < limit) {
+          QueueEntry entry = queue.Dequeue();
           AccessibleContextInfoNative info;
           if (GetAccessibleContextInfoNative(vmId, entry.Context, out info) == 0) { continue; }
           int nodeIndex = result.Count;
@@ -191,17 +193,17 @@ namespace M2W {
               ReleaseJavaObjectNative(vmId, child);
               continue;
             }
+            references.Add(child);
             queue.Enqueue(new QueueEntry { Context = child, Parent = nodeIndex, Depth = entry.Depth + 1 });
           }
         }
-        finally {
-          ReleaseJavaObjectNative(vmId, entry.Context);
-        }
       }
-
-      while (queue.Count > 0) {
-        QueueEntry remaining = queue.Dequeue();
-        ReleaseJavaObjectNative(vmId, remaining.Context);
+      finally {
+        // JAB may recycle object handles after release. Keep every context alive for the
+        // complete walk so handle-based de-duplication cannot hide legitimate descendants.
+        for (int index = references.Count - 1; index >= 0; index--) {
+          ReleaseJavaObjectNative(vmId, references[index]);
+        }
       }
       return result.ToArray();
     }
