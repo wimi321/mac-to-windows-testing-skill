@@ -420,9 +420,12 @@ function Test-M2WAssertion {
             $otherTarget = Get-M2WValue -Object $Step -Name 'otherTarget'
             if (-not $otherTarget) { throw 'noOverlap requires otherTarget.' }
             $other = Find-M2WElement -Target $otherTarget -Root $Window -TimeoutSeconds 5
+            if (-not $element -or -not $other) {
+                return [pscustomobject]@{ Passed = $false; Detail = 'One or both overlap targets were not found.' }
+            }
             $tolerance = [double](Get-M2WValue -Object $Step -Name 'tolerancePixels' -Default 2)
-            $area = if ($element -and $other) { Get-M2WRectOverlapArea -First $element.Current.BoundingRectangle -Second $other.Current.BoundingRectangle } else { -1 }
-            return [pscustomobject]@{ Passed = [bool]($element -and $other -and $area -le ($tolerance * $tolerance)); Detail = "Overlap area: $area pixel(s)." }
+            $area = Get-M2WRectOverlapArea -First $element.Current.BoundingRectangle -Second $other.Current.BoundingRectangle
+            return [pscustomobject]@{ Passed = [bool]($area -le ($tolerance * $tolerance)); Detail = "Overlap area: $area pixel(s)." }
         }
         default { throw "Unknown assertion condition: $condition" }
     }

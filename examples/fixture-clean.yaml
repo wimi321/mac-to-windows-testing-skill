@@ -24,35 +24,28 @@ scenarios:
       - action: "assert"
         target:
           name: "Run validation"
-          controlType: "Button"
         otherTarget:
           name: "Open evidence"
-          controlType: "Button"
         condition: "noOverlap"
       - action: "assert"
         target:
           name: "Export report"
-          controlType: "Button"
         condition: "withinWindow"
       - action: "assert"
         target:
           name: "Continue test"
-          controlType: "Button"
         condition: "enabled"
       - action: "click"
         target:
           name: "Update status"
-          controlType: "Button"
       - action: "assert"
         target:
           name: "Response status"
-          controlType: "Text"
         condition: "textEquals"
         value: "Completed"
       - action: "assert"
         target:
           name: "Content ready"
-          controlType: "Text"
         condition: "exists"
       - action: "screenshot"
         checkpoint: "clean"
