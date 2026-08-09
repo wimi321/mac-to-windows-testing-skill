@@ -434,7 +434,8 @@ function Test-M2WDangerousTarget {
         (Get-M2WValue -Object $Target -Name 'name'),
         (Get-M2WValue -Object $Target -Name 'automationId')
     ) -join ' '
-    return $text -match '(?i)delete|remove|uninstall|publish|release|purchase|payment|pay now|factory reset|drop database|清空|删除|卸载|发布|付款|购买|重置'
+    # Keep the module ASCII-only so Windows PowerShell 5.1 parses it identically on every locale.
+    return $text -match '(?i)delete|remove|uninstall|publish|release|purchase|payment|pay now|factory reset|drop database|\u6e05\u7a7a|\u5220\u9664|\u5378\u8f7d|\u53d1\u5e03|\u4ed8\u6b3e|\u8d2d\u4e70|\u91cd\u7f6e'
 }
 
 function Invoke-M2WStep {

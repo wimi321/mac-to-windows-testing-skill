@@ -25,6 +25,8 @@ $second = [System.Windows.Rect]::new(50, 50, 100, 100)
 if ((Get-M2WRectOverlapArea -First $first -Second $second) -ne 2500) { throw 'Overlap geometry test failed.' }
 if (-not (Test-M2WRectContained -Child ([System.Windows.Rect]::new(10, 10, 20, 20)) -Parent $first)) { throw 'Containment test failed.' }
 if (-not (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Delete account' }))) { throw 'Danger classifier test failed.' }
+$deleteAccountChinese = -join ([char]0x5220, [char]0x9664, [char]0x8d26, [char]0x6237)
+if (-not (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = $deleteAccountChinese }))) { throw 'Localized danger classifier test failed.' }
 if (Test-M2WDangerousTarget -Target ([pscustomobject]@{ name = 'Open settings' })) { throw 'Safe control was misclassified.' }
 
 Write-Output "Validated $($files.Count) PowerShell files."
