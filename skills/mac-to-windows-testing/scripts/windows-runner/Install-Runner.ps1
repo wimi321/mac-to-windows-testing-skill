@@ -14,7 +14,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $RunnerRoot 'trusted-profiles.json')
 $worker = Join-Path $RunnerRoot 'runner\Worker.ps1'
 if (-not (Test-Path -LiteralPath $worker)) { throw "Runner worker not found: $worker" }
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$worker`" -RunnerRoot `"$RunnerRoot`""
-$principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType InteractiveToken -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
 $javaAccessBridge = Enable-M2WJavaAccessBridge

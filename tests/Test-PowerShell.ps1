@@ -18,6 +18,15 @@ foreach ($file in $files) {
 }
 if ($failed) { exit 1 }
 
+$installRunnerPath = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\Install-Runner.ps1'
+$installRunnerText = Get-Content -LiteralPath $installRunnerPath -Raw -Encoding UTF8
+if ($installRunnerText -notmatch '-LogonType\s+Interactive(?:\s|$)') {
+    throw 'Interactive runner must use the ScheduledTasks Interactive logon type.'
+}
+if ($installRunnerText -match '-LogonType\s+InteractiveToken(?:\s|$)') {
+    throw 'InteractiveToken is not a valid ScheduledTasks logon type on Windows PowerShell 5.1.'
+}
+
 $javaAccessBridgeModule = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\JavaAccessBridge.psm1'
 Import-Module $javaAccessBridgeModule -Force
 Initialize-M2WJavaAccessBridgeTypes
