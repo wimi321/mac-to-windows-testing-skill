@@ -108,14 +108,24 @@ $nativeWindowFixture = [pscustomobject]@{
     Height = 240
     Title = 'M2W expected dialog'
 }
-if (-not (Test-M2WNativeWindowCandidate -Window $nativeWindowFixture -Target ([pscustomobject]@{
+$expectedNativeTarget = [pscustomobject]@{
     name = 'M2W expected dialog'
     controlType = 'Window'
-}))) { throw 'Native exact-name window matching rejected the expected dialog.' }
-if (Test-M2WNativeWindowCandidate -Window $nativeWindowFixture -Target ([pscustomobject]@{
+}
+$unrelatedNativeTarget = [pscustomobject]@{
     name = 'M2W unrelated dialog'
     controlType = 'Window'
-})) { throw 'Native exact-name window matching accepted an unrelated dialog.' }
+}
+$expectedNativeMatch = & $uiAutomationModule {
+    param($Window, $Target)
+    Test-M2WNativeWindowCandidate -Window $Window -Target $Target
+} $nativeWindowFixture $expectedNativeTarget
+$unrelatedNativeMatch = & $uiAutomationModule {
+    param($Window, $Target)
+    Test-M2WNativeWindowCandidate -Window $Window -Target $Target
+} $nativeWindowFixture $unrelatedNativeTarget
+if (-not $expectedNativeMatch) { throw 'Native exact-name window matching rejected the expected dialog.' }
+if ($unrelatedNativeMatch) { throw 'Native exact-name window matching accepted an unrelated dialog.' }
 $topLevelForm = [System.Windows.Forms.Form]::new()
 $topLevelForm.Text = 'M2W top-level discovery fixture'
 $topLevelForm.Width = 420
