@@ -440,7 +440,10 @@ function Test-M2WNativeWindowCandidate {
         [Parameter(Mandatory)]$Target
     )
     if ([double]$Window.Width -le 0 -or [double]$Window.Height -le 0) { return $false }
-    if (-not (Test-M2WTargetName -ActualName ([string]$Window.Title) -Target $Target)) { return $false }
+    $title = [string]$Window.Title
+    $expectedName = Get-M2WValue -Object $Target -Name 'name'
+    if ($null -ne $expectedName -and $title -ne [string]$expectedName) { return $false }
+    if (-not (Test-M2WTargetName -ActualName $title -Target $Target)) { return $false }
     $requestedType = [string](Get-M2WValue -Object $Target -Name 'controlType' -Default 'Window')
     return -not $requestedType -or $requestedType -eq 'Window'
 }

@@ -103,6 +103,19 @@ if (-not [M2W.NativeMethods].GetMethod('ShowWindowAsync')) { throw 'Native windo
 if (-not [M2W.NativeMethods].GetMethod('ActivateWindow')) { throw 'Foreground-thread window activation is unavailable.' }
 if (-not [M2W.WindowActivationV1].GetMethod('ActivateWindow')) { throw 'Versioned window activation is unavailable.' }
 if (-not [M2W.WindowEnumerationV1].GetMethod('GetVisibleWindows')) { throw 'Bounded native window enumeration is unavailable.' }
+$nativeWindowFixture = [pscustomobject]@{
+    Width = 420
+    Height = 240
+    Title = 'M2W expected dialog'
+}
+if (-not (Test-M2WNativeWindowCandidate -Window $nativeWindowFixture -Target ([pscustomobject]@{
+    name = 'M2W expected dialog'
+    controlType = 'Window'
+}))) { throw 'Native exact-name window matching rejected the expected dialog.' }
+if (Test-M2WNativeWindowCandidate -Window $nativeWindowFixture -Target ([pscustomobject]@{
+    name = 'M2W unrelated dialog'
+    controlType = 'Window'
+})) { throw 'Native exact-name window matching accepted an unrelated dialog.' }
 $topLevelForm = [System.Windows.Forms.Form]::new()
 $topLevelForm.Text = 'M2W top-level discovery fixture'
 $topLevelForm.Width = 420
