@@ -173,13 +173,17 @@ $emptyChildPath = & $uiAutomationModule { Get-M2WJavaChildPath -Node ([pscustomo
 if ($missingChildPath.Available) { throw 'A legacy Java node without ChildPath was marked action-capable.' }
 if (-not $validChildPath.Available -or (@($validChildPath.Path) -join ',') -ne '1,3,5') { throw 'Java child path normalization failed.' }
 if (-not $emptyChildPath.Available -or @($emptyChildPath.Path).Count -ne 0) { throw 'An explicit Java root child path was rejected.' }
-$physicalJavaNode = [pscustomobject]@{ Offscreen = $false; Width = 120; Height = 32 }
-$offscreenJavaNode = [pscustomobject]@{ Offscreen = $true; Width = 120; Height = 32 }
+$workArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$physicalJavaNode = [pscustomobject]@{ Offscreen = $false; X = $workArea.Left + 20; Y = $workArea.Top + 20; Width = 120; Height = 32 }
+$offscreenJavaNode = [pscustomobject]@{ Offscreen = $true; X = $workArea.Left + 20; Y = $workArea.Top + 20; Width = 120; Height = 32 }
+$taskbarOccludedJavaNode = [pscustomobject]@{ Offscreen = $false; X = $workArea.Left + 20; Y = $workArea.Bottom - 10; Width = 120; Height = 32 }
 $physicalJavaClick = & $uiAutomationModule { param($node) Test-M2WJavaPhysicalClickAvailable -WindowHandle ([IntPtr]::new(1)) -Node $node } $physicalJavaNode
 $offscreenJavaClick = & $uiAutomationModule { param($node) Test-M2WJavaPhysicalClickAvailable -WindowHandle ([IntPtr]::new(1)) -Node $node } $offscreenJavaNode
+$taskbarOccludedJavaClick = & $uiAutomationModule { param($node) Test-M2WJavaPhysicalClickAvailable -WindowHandle ([IntPtr]::new(1)) -Node $node } $taskbarOccludedJavaNode
 $missingHandleJavaClick = & $uiAutomationModule { param($node) Test-M2WJavaPhysicalClickAvailable -WindowHandle ([IntPtr]::Zero) -Node $node } $physicalJavaNode
 if (-not $physicalJavaClick) { throw 'A visible Java control with a native window was not eligible for physical clicking.' }
 if ($offscreenJavaClick) { throw 'An offscreen Java control was eligible for physical clicking.' }
+if ($taskbarOccludedJavaClick) { throw 'A Java control extending under the taskbar was eligible for physical clicking.' }
 if ($missingHandleJavaClick) { throw 'A Java control without a native window was eligible for physical clicking.' }
 $winFormsButton = [pscustomobject]@{ ControlType = 'Pane'; ClassName = 'WindowsForms10.BUTTON.app.0.test' }
 $winFormsLabel = [pscustomobject]@{ ControlType = 'Pane'; ClassName = 'WindowsForms10.STATIC.app.0.test' }

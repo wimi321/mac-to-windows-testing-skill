@@ -710,9 +710,20 @@ function Test-M2WJavaPhysicalClickAvailable {
     )
     if ($WindowHandle -eq [IntPtr]::Zero) { return $false }
     if ([bool](Get-M2WValue -Object $Node -Name 'Offscreen' -Default $true)) { return $false }
+    $x = [double](Get-M2WValue -Object $Node -Name 'X' -Default 0)
+    $y = [double](Get-M2WValue -Object $Node -Name 'Y' -Default 0)
     $width = [double](Get-M2WValue -Object $Node -Name 'Width' -Default 0)
     $height = [double](Get-M2WValue -Object $Node -Name 'Height' -Default 0)
-    return $width -gt 0 -and $height -gt 0
+    if ($width -le 0 -or $height -le 0) { return $false }
+
+    # Java Access Bridge can report a control as showing even when its bounds extend under
+    # the Windows taskbar after a DPI or remote-display change. A native click there would
+    # activate the shell instead of the application, so use the isolated JAB action instead.
+    $workArea = [System.Windows.Forms.Screen]::FromHandle($WindowHandle).WorkingArea
+    return $x -ge $workArea.Left `
+        -and $y -ge $workArea.Top `
+        -and ($x + $width) -le $workArea.Right `
+        -and ($y + $height) -le $workArea.Bottom
 }
 
 function Invoke-M2WUnifiedClick {
