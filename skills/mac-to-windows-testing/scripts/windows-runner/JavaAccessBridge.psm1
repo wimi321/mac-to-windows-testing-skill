@@ -647,8 +647,19 @@ function Invoke-M2WJavaAccessibleAction {
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
         [Parameter(Mandatory)][int[]]$ChildPath,
         [int]$ProcessId = 0,
-        [string]$PreferredAction = 'click'
+        [string]$PreferredAction = 'click',
+        [int]$TimeoutSeconds = 8,
+        [switch]$InProcess
     )
+    if (-not $InProcess) {
+        return Invoke-M2WIsolatedJavaAccessibleAction `
+            -WindowHandle $WindowHandle `
+            -ChildPath $ChildPath `
+            -ProcessId $ProcessId `
+            -PreferredAction $PreferredAction `
+            -TimeoutSeconds $TimeoutSeconds
+    }
+
     $status = Initialize-M2WJavaAccessBridge -WindowHandle $WindowHandle -ProcessId $ProcessId
     if (-not $status.Available -or -not $status.IsJavaWindow) {
         return [pscustomobject]@{
@@ -683,6 +694,119 @@ function Invoke-M2WJavaAccessibleAction {
             Blocker = 'JAVA_ACCESSIBLE_ACTION_EXCEPTION'
             Detail = $_.Exception.Message
         }
+    }
+}
+
+function Invoke-M2WIsolatedJavaAccessibleAction {
+    param(
+        [Parameter(Mandatory)][IntPtr]$WindowHandle,
+        [Parameter(Mandatory)][int[]]$ChildPath,
+        [int]$ProcessId = 0,
+        [string]$PreferredAction = 'click',
+        [int]$TimeoutSeconds = 8
+    )
+    $actionScript = Join-Path $PSScriptRoot 'Invoke-JavaAccessibilityAction.ps1'
+    if (-not (Test-Path -LiteralPath $actionScript -PathType Leaf)) {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Supported = $false
+            Action = $null
+            AvailableActions = @()
+            FailureIndex = -1
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_HELPER_MISSING'
+            Detail = "Java accessibility action helper was not found: $actionScript"
+        }
+    }
+
+    $outputPath = Join-Path ([IO.Path]::GetTempPath()) ("m2w-java-action-" + [Guid]::NewGuid().ToString('N') + '.json')
+    $childPathCsv = if (@($ChildPath).Count) { @($ChildPath) -join ',' } else { 'root' }
+    $process = [System.Diagnostics.Process]::new()
+    try {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'powershell.exe'
+        $startInfo.Arguments = @(
+            '-NoProfile'
+            '-NonInteractive'
+            '-ExecutionPolicy Bypass'
+            "-File `"$actionScript`""
+            "-ModulePath `"$script:M2WJavaBridgeModulePath`""
+            "-WindowHandle $($WindowHandle.ToInt64())"
+            "-ProcessId $ProcessId"
+            "-ChildPathCsv `"$childPathCsv`""
+            "-PreferredAction `"$PreferredAction`""
+            "-OutputPath `"$outputPath`""
+        ) -join ' '
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process.StartInfo = $startInfo
+        [void]$process.Start()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $completed = $process.WaitForExit([Math]::Max(1, $TimeoutSeconds) * 1000)
+        if (-not $completed) {
+            try { $process.Kill() } catch { }
+            try { [void]$process.WaitForExit(5000) } catch { }
+            return [pscustomobject]@{
+                Status = 'BLOCKED'
+                Supported = $false
+                Action = $null
+                AvailableActions = @()
+                FailureIndex = -1
+                Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT'
+                Detail = "Java accessibility action exceeded the $TimeoutSeconds second deadline; its outcome is unknown."
+            }
+        }
+
+        $process.WaitForExit()
+        $process.Refresh()
+        $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
+        $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
+        if (Test-Path -LiteralPath $outputPath -PathType Leaf) {
+            try {
+                return Get-Content -LiteralPath $outputPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            }
+            catch {
+                return [pscustomobject]@{
+                    Status = 'BLOCKED'
+                    Supported = $false
+                    Action = $null
+                    AvailableActions = @()
+                    FailureIndex = -1
+                    Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_INVALID'
+                    Detail = "Java accessibility action returned invalid evidence: $($_.Exception.Message)"
+                }
+            }
+        }
+
+        $detail = if ($stderr) { $stderr } elseif ($stdout) { $stdout } else { "Action helper exited with code $($process.ExitCode) without evidence." }
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Supported = $false
+            Action = $null
+            AvailableActions = @()
+            FailureIndex = -1
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_FAILED'
+            Detail = $detail
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'
+            Supported = $false
+            Action = $null
+            AvailableActions = @()
+            FailureIndex = -1
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_FAILED'
+            Detail = $_.Exception.Message
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $outputPath) {
+            Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue
+        }
+        $process.Dispose()
     }
 }
 

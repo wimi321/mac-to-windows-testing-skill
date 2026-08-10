@@ -43,6 +43,38 @@ $captureHelper = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-
 if (-not (Test-Path -LiteralPath $captureHelper -PathType Leaf)) {
     throw 'Isolated Java accessibility capture helper is missing.'
 }
+
+$javaActionCommand = Get-Command Invoke-M2WJavaAccessibleAction
+foreach ($parameterName in @('TimeoutSeconds', 'InProcess')) {
+    if (-not $javaActionCommand.Parameters.ContainsKey($parameterName)) {
+        throw "Java accessibility action is missing the $parameterName parameter."
+    }
+}
+$actionHelper = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\Invoke-JavaAccessibilityAction.ps1'
+if (-not (Test-Path -LiteralPath $actionHelper -PathType Leaf)) {
+    throw 'Isolated Java accessibility action helper is missing.'
+}
+$previousActionDelay = $env:M2W_TEST_JAVA_ACTION_DELAY_MS
+try {
+    $env:M2W_TEST_JAVA_ACTION_DELAY_MS = '1800'
+    $actionTimeoutStart = Get-Date
+    $timeoutAction = Invoke-M2WJavaAccessibleAction `
+        -WindowHandle ([IntPtr]::Zero) -ChildPath ([int[]]@()) -TimeoutSeconds 1
+    if ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
+        throw "Java accessibility action did not return the timeout blocker: $($timeoutAction.Blocker)"
+    }
+    if (((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
+        throw 'Java accessibility action timeout exceeded its bounded shutdown allowance.'
+    }
+}
+finally {
+    if ($null -eq $previousActionDelay) {
+        Remove-Item Env:M2W_TEST_JAVA_ACTION_DELAY_MS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:M2W_TEST_JAVA_ACTION_DELAY_MS = $previousActionDelay
+    }
+}
 $previousCaptureDelay = $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS
 try {
     $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS = '1800'

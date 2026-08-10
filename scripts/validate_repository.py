@@ -31,6 +31,7 @@ def main() -> int:
         SKILL / 'agents' / 'openai.yaml',
         SKILL / 'scripts' / 'mac2win_test.py',
         SKILL / 'scripts' / 'windows-runner' / 'Capture-JavaAccessibility.ps1',
+        SKILL / 'scripts' / 'windows-runner' / 'Invoke-JavaAccessibilityAction.ps1',
         SKILL / 'scripts' / 'windows-runner' / 'JavaAccessBridge.psm1',
         SKILL / 'scripts' / 'windows-runner' / 'Invoke-MacToWindowsTest.ps1',
     ]

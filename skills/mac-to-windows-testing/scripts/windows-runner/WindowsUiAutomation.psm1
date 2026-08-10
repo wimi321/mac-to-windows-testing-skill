@@ -510,6 +510,8 @@ function Find-M2WJavaElement {
     if ($handle -eq [IntPtr]::Zero) { return $null }
     $processId = Get-M2WRootProcessId -Root $Root
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastBlocker = $null
+    $lastDetail = $null
     do {
         $snapshot = Get-M2WJavaAccessibilitySnapshot -WindowHandle $handle -ProcessId $processId
         if ($snapshot.Status -eq 'READY') {
@@ -517,8 +519,20 @@ function Find-M2WJavaElement {
                 if (Test-M2WJavaNodeTarget -Node $node -Target $Target) { return $node }
             }
         }
+        elseif ($snapshot.Status -eq 'BLOCKED') {
+            $lastBlocker = [string]$snapshot.Blocker
+            $lastDetail = [string]$snapshot.Detail
+            break
+        }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
+    if ($lastBlocker) {
+        return [pscustomobject]@{
+            M2WLookupBlocked = $true
+            Blocker = $lastBlocker
+            Detail = $lastDetail
+        }
+    }
     return $null
 }
 
@@ -531,12 +545,18 @@ function Find-M2WUnifiedElement {
     $uiaTimeout = if (Test-M2WJavaUiRoot -Root $Root) { [Math]::Min(1, $TimeoutSeconds) } else { $TimeoutSeconds }
     $element = Find-M2WElement -Target $Target -Root $Root -TimeoutSeconds $uiaTimeout
     if ($element) {
-        return [pscustomobject]@{ Provider = 'UIAutomation'; Element = $element; Node = $null; Root = $Root }
+        return [pscustomobject]@{ Status = 'READY'; Provider = 'UIAutomation'; Element = $element; Node = $null; Root = $Root; Blocker = $null; Detail = $null }
     }
     if (Test-M2WJavaUiRoot -Root $Root) {
         $node = Find-M2WJavaElement -Target $Target -Root $Root -TimeoutSeconds $TimeoutSeconds
+        if ($node -and $node.PSObject.Properties['M2WLookupBlocked']) {
+            return [pscustomobject]@{
+                Status = 'BLOCKED'; Provider = 'JavaAccessBridge'; Element = $null; Node = $null
+                Root = $Root; Blocker = $node.Blocker; Detail = $node.Detail
+            }
+        }
         if ($node) {
-            return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Element = $null; Node = $node; Root = $Root }
+            return [pscustomobject]@{ Status = 'READY'; Provider = 'JavaAccessBridge'; Element = $null; Node = $node; Root = $Root; Blocker = $null; Detail = $null }
         }
     }
     return $null
@@ -585,9 +605,15 @@ function Get-M2WJavaChildPath {
 
 function Invoke-M2WUnifiedClick {
     param([Parameter(Mandatory)]$Match)
+    if ((Get-M2WValue -Object $Match -Name 'Status' -Default 'READY') -eq 'BLOCKED') {
+        return [pscustomobject]@{
+            Status = 'BLOCKED'; Provider = $Match.Provider; Method = $null; Action = $null
+            Blocker = $Match.Blocker; Detail = $Match.Detail
+        }
+    }
     if ($Match.Provider -eq 'UIAutomation') {
         Invoke-M2WElementClick -Element $Match.Element
-        return [pscustomobject]@{ Provider = 'UIAutomation'; Method = 'AutomationPatternOrPhysicalFallback'; Action = $null }
+        return [pscustomobject]@{ Status = 'PASS'; Provider = 'UIAutomation'; Method = 'AutomationPatternOrPhysicalFallback'; Action = $null; Blocker = $null; Detail = $null }
     }
     $windowHandle = Get-M2WRootNativeHandle -Root $Match.Root
     $processId = Get-M2WRootProcessId -Root $Match.Root
@@ -600,13 +626,25 @@ function Invoke-M2WUnifiedClick {
             -PreferredAction 'click'
         if ($accessibleAction.Status -eq 'PASS') {
             return [pscustomobject]@{
+                Status = 'PASS'
                 Provider = 'JavaAccessBridge'
                 Method = 'AccessibleAction'
                 Action = $accessibleAction.Action
+                Blocker = $null
+                Detail = $accessibleAction.Detail
             }
         }
-        if ($accessibleAction.Status -eq 'FAIL' -or $accessibleAction.Status -eq 'BLOCKED') {
-            throw "Java accessible action failed: $($accessibleAction.Detail)"
+        if ($accessibleAction.Status -eq 'BLOCKED') {
+            return [pscustomobject]@{
+                Status = 'BLOCKED'; Provider = 'JavaAccessBridge'; Method = 'AccessibleAction'; Action = $null
+                Blocker = $accessibleAction.Blocker; Detail = $accessibleAction.Detail
+            }
+        }
+        if ($accessibleAction.Status -eq 'FAIL') {
+            return [pscustomobject]@{
+                Status = 'FAIL'; Provider = 'JavaAccessBridge'; Method = 'AccessibleAction'; Action = $accessibleAction.Action
+                Blocker = $accessibleAction.Blocker; Detail = $accessibleAction.Detail
+            }
         }
     }
     if ($windowHandle -ne [IntPtr]::Zero) {
@@ -620,7 +658,7 @@ function Invoke-M2WUnifiedClick {
         throw 'Java accessible target does not have visible clickable bounds.'
     }
     Invoke-M2WPointClick -X ($bounds.X + ($bounds.Width / 2)) -Y ($bounds.Y + ($bounds.Height / 2))
-    return [pscustomobject]@{ Provider = 'JavaAccessBridge'; Method = 'PhysicalFallback'; Action = $null }
+    return [pscustomobject]@{ Status = 'PASS'; Provider = 'JavaAccessBridge'; Method = 'PhysicalFallback'; Action = $null; Blocker = $null; Detail = $null }
 }
 
 function Export-M2WUiTree {
@@ -1049,7 +1087,7 @@ function Invoke-M2WSafeExploration {
             Id = $node.Id; Provider = $node.Provider; Name = $node.Name; ControlType = $node.ControlType
             Category = $candidate.Category; Status = 'PASS'; InvocationMethod = $null
             VisibleStateChanged = $false; NewWindows = @(); CleanupVerified = $true
-            Evidence = $null; Error = $null
+            Evidence = $null; Error = $null; Blocker = $null
         }
         try {
             $beforeWindows = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId)
@@ -1062,6 +1100,14 @@ function Invoke-M2WSafeExploration {
             $match = Find-M2WUnifiedElement -Target ([pscustomobject]$target) -Root $Root -TimeoutSeconds 3
             if (-not $match) { throw 'Safe exploration target was no longer available.' }
             $invocation = Invoke-M2WUnifiedClick -Match $match
+            if ($invocation.Status -ne 'PASS') {
+                $result.Status = $invocation.Status
+                $result.Error = $invocation.Detail
+                $result.Blocker = $invocation.Blocker
+                $results.Add([pscustomobject]$result)
+                if ($invocation.Status -eq 'BLOCKED') { break }
+                continue
+            }
             $result.InvocationMethod = "$($invocation.Provider)/$($invocation.Method)"
             Start-Sleep -Milliseconds 450
 
@@ -1104,9 +1150,10 @@ function Invoke-M2WSafeExploration {
     }
 
     $failed = @($results | Where-Object { $_.Status -eq 'FAIL' })
+    $blocked = @($results | Where-Object { $_.Status -eq 'BLOCKED' })
     return [pscustomobject]@{
-        Status = $(if ($audit.Status -eq 'FAIL' -or $failed.Count) { 'FAIL' } else { 'PASS' })
-        Blocker = $null
+        Status = $(if ($audit.Status -eq 'FAIL' -or $failed.Count) { 'FAIL' } elseif ($blocked.Count) { 'BLOCKED' } else { 'PASS' })
+        Blocker = $(if ($blocked.Count) { $blocked[0].Blocker } else { $null })
         Graph = $graphPath
         Audit = $auditPath
         CandidateCount = $candidates.Count
@@ -1214,9 +1261,12 @@ function Test-M2WAssertion {
     $target = Get-M2WValue -Object $Step -Name 'target' -Default $Step
     $condition = [string](Get-M2WValue -Object $Step -Name 'condition' -Default 'exists')
     $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 5
+    if ($match -and $match.Status -eq 'BLOCKED') {
+        return [pscustomobject]@{ Status = 'BLOCKED'; Passed = $false; Detail = $match.Detail; Blocker = $match.Blocker }
+    }
     switch ($condition) {
-        'exists' { return [pscustomobject]@{ Passed = [bool]$match; Detail = $(if ($match) { "Element exists through $($match.Provider)." } else { 'Element not found.' }) } }
-        'notExists' { return [pscustomobject]@{ Passed = -not $match; Detail = $(if ($match) { 'Unexpected element exists.' } else { 'Element is absent.' }) } }
+        'exists' { return [pscustomobject]@{ Status = 'READY'; Passed = [bool]$match; Detail = $(if ($match) { "Element exists through $($match.Provider)." } else { 'Element not found.' }) } }
+        'notExists' { return [pscustomobject]@{ Status = 'READY'; Passed = -not $match; Detail = $(if ($match) { 'Unexpected element exists.' } else { 'Element is absent.' }) } }
         'enabled' {
             $enabled = [bool]($match -and $(if ($match.Provider -eq 'UIAutomation') { $match.Element.Current.IsEnabled } else { $match.Node.Enabled }))
             return [pscustomobject]@{ Passed = $enabled; Detail = 'Checked enabled state.' }
@@ -1246,6 +1296,9 @@ function Test-M2WAssertion {
             $otherTarget = Get-M2WValue -Object $Step -Name 'otherTarget'
             if (-not $otherTarget) { throw 'noOverlap requires otherTarget.' }
             $other = Find-M2WUnifiedElement -Target $otherTarget -Root $Window -TimeoutSeconds 5
+            if ($other -and $other.Status -eq 'BLOCKED') {
+                return [pscustomobject]@{ Status = 'BLOCKED'; Passed = $false; Detail = $other.Detail; Blocker = $other.Blocker }
+            }
             if (-not $match -or -not $other) {
                 return [pscustomobject]@{ Passed = $false; Detail = 'One or both overlap targets were not found.' }
             }
@@ -1343,7 +1396,12 @@ function Invoke-M2WStep {
         }
         'assert' {
             $assertion = Test-M2WAssertion -Step $Step -Window $Window
-            return [pscustomobject]@{ Status = $(if ($assertion.Passed) { 'PASS' } else { 'FAIL' }); Action = $action; Summary = $assertion.Detail }
+            $assertionStatus = [string](Get-M2WValue -Object $assertion -Name 'Status' -Default 'READY')
+            $assertionBlocker = Get-M2WValue -Object $assertion -Name 'Blocker'
+            return [pscustomobject]@{
+                Status = $(if ($assertionStatus -eq 'BLOCKED') { 'BLOCKED' } elseif ($assertion.Passed) { 'PASS' } else { 'FAIL' })
+                Action = $action; Summary = $assertion.Detail; Blocker = $assertionBlocker
+            }
         }
         'click' {
             $target = Get-M2WValue -Object $Step -Name 'target'
@@ -1353,6 +1411,12 @@ function Invoke-M2WStep {
             $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 10
             if (-not $match) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Click target not found.' } }
             $invocation = Invoke-M2WUnifiedClick -Match $match
+            if ($invocation.Status -ne 'PASS') {
+                return [pscustomobject]@{
+                    Status = $invocation.Status; Action = $action; Provider = $invocation.Provider
+                    InvocationMethod = $invocation.Method; Blocker = $invocation.Blocker; Summary = $invocation.Detail
+                }
+            }
             Start-Sleep -Milliseconds 350
             return [pscustomobject]@{
                 Status = 'PASS'
@@ -1366,13 +1430,24 @@ function Invoke-M2WStep {
             $target = Get-M2WValue -Object $Step -Name 'target'
             $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 10
             if (-not $match) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Text target not found.' } }
+            if ($match.Status -eq 'BLOCKED') {
+                return [pscustomobject]@{ Status = 'BLOCKED'; Action = $action; Blocker = $match.Blocker; Summary = $match.Detail }
+            }
             $text = [string](Get-M2WValue -Object $Step -Name 'text' -Default '')
             $pattern = $null
             if ($match.Provider -eq 'UIAutomation' -and $match.Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -and -not ([System.Windows.Automation.ValuePattern]$pattern).Current.IsReadOnly) {
                 ([System.Windows.Automation.ValuePattern]$pattern).SetValue($text)
             }
             else {
-                if ($match.Provider -eq 'UIAutomation') { $match.Element.SetFocus() } else { Invoke-M2WUnifiedClick -Match $match }
+                if ($match.Provider -eq 'UIAutomation') {
+                    $match.Element.SetFocus()
+                }
+                else {
+                    $focusResult = Invoke-M2WUnifiedClick -Match $match
+                    if ($focusResult.Status -ne 'PASS') {
+                        return [pscustomobject]@{ Status = $focusResult.Status; Action = $action; Blocker = $focusResult.Blocker; Summary = $focusResult.Detail }
+                    }
+                }
                 [System.Windows.Forms.SendKeys]::SendWait('^a')
                 $escaped = $text.Replace('{', '{{}').Replace('}', '{}}').Replace('+', '{+}').Replace('^', '{^}').Replace('%', '{%}').Replace('~', '{~}')
                 [System.Windows.Forms.SendKeys]::SendWait($escaped)
