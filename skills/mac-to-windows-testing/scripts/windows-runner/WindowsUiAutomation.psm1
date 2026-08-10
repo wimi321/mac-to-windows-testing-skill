@@ -137,6 +137,74 @@ namespace M2W {
 }
 '@
     }
+    if (-not ('M2W.WindowActivationV2' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+namespace M2W {
+  public static class WindowActivationV2 {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X; public int Y; }
+
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint attachTo, bool value);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT point);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+
+    private const uint GA_ROOT = 2;
+
+    private static bool OwnsPoint(IntPtr window, int x, int y) {
+      POINT point = new POINT { X = x, Y = y };
+      IntPtr hit = WindowFromPoint(point);
+      if (hit == IntPtr.Zero) { return false; }
+      return hit == window || GetAncestor(hit, GA_ROOT) == window;
+    }
+
+    public static bool ActivateWindowAtPoint(IntPtr window, int x, int y) {
+      if (window == IntPtr.Zero || !IsWindow(window) || !IsWindowVisible(window)) { return false; }
+      IntPtr foreground = GetForegroundWindow();
+      uint ignored;
+      uint currentThread = GetCurrentThreadId();
+      uint foregroundThread = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, out ignored);
+      uint targetThread = GetWindowThreadProcessId(window, out ignored);
+      bool attachedForeground = false;
+      bool attachedTarget = false;
+      try {
+        if (foregroundThread != 0 && foregroundThread != currentThread) {
+          attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+        }
+        if (targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread) {
+          attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+        }
+        ShowWindowAsync(window, 9);
+        BringWindowToTop(window);
+        SetForegroundWindow(window);
+        SetFocus(window);
+        for (int attempt = 0; attempt < 5; attempt++) {
+          if (GetForegroundWindow() == window || OwnsPoint(window, x, y)) { return true; }
+          Thread.Sleep(40);
+          BringWindowToTop(window);
+        }
+        return false;
+      }
+      finally {
+        if (attachedTarget) { AttachThreadInput(currentThread, targetThread, false); }
+        if (attachedForeground) { AttachThreadInput(currentThread, foregroundThread, false); }
+      }
+    }
+  }
+}
+'@
+    }
     if (-not ('M2W.WindowEnumerationV1' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -748,15 +816,17 @@ function Invoke-M2WUnifiedClick {
     # supplies the exact target bounds, while a native pointer click returns immediately and
     # leaves the bridge available for evidence capture inside the newly opened dialog.
     if (Test-M2WJavaPhysicalClickAvailable -WindowHandle $windowHandle -Node $Match.Node) {
-        if (-not [M2W.WindowActivationV1]::ActivateWindow($windowHandle)) {
-            throw 'Unable to activate the Java target window before clicking.'
-        }
-        Start-Sleep -Milliseconds 120
         $bounds = Get-M2WUnifiedBounds -Match $Match
-        Invoke-M2WPointClick -X ($bounds.X + ($bounds.Width / 2)) -Y ($bounds.Y + ($bounds.Height / 2))
-        return [pscustomobject]@{
-            Status = 'PASS'; Provider = 'JavaAccessBridge'; Method = 'PhysicalFromJavaBounds'
-            Action = 'click'; Blocker = $null; Detail = 'Clicked native pointer coordinates resolved from Java accessibility bounds.'
+        $clickX = $bounds.X + ($bounds.Width / 2)
+        $clickY = $bounds.Y + ($bounds.Height / 2)
+        if ([M2W.WindowActivationV2]::ActivateWindowAtPoint(
+                $windowHandle, [int][Math]::Round($clickX), [int][Math]::Round($clickY))) {
+            Start-Sleep -Milliseconds 120
+            Invoke-M2WPointClick -X $clickX -Y $clickY
+            return [pscustomobject]@{
+                Status = 'PASS'; Provider = 'JavaAccessBridge'; Method = 'PhysicalFromJavaBounds'
+                Action = 'click'; Blocker = $null; Detail = 'Clicked native pointer coordinates resolved from Java accessibility bounds.'
+            }
         }
     }
     $childPath = Get-M2WJavaChildPath -Node $Match.Node
@@ -790,8 +860,16 @@ function Invoke-M2WUnifiedClick {
         }
     }
     if ($windowHandle -ne [IntPtr]::Zero) {
-        if (-not [M2W.WindowActivationV1]::ActivateWindow($windowHandle)) {
-            throw 'Unable to activate the Java target window before clicking.'
+        $bounds = Get-M2WUnifiedBounds -Match $Match
+        $clickX = $bounds.X + ($bounds.Width / 2)
+        $clickY = $bounds.Y + ($bounds.Height / 2)
+        if (-not [M2W.WindowActivationV2]::ActivateWindowAtPoint(
+                $windowHandle, [int][Math]::Round($clickX), [int][Math]::Round($clickY))) {
+            return [pscustomobject]@{
+                Status = 'BLOCKED'; Provider = 'JavaAccessBridge'; Method = 'PhysicalFallback'; Action = $null
+                Blocker = 'BLOCKED_TARGET_WINDOW_OCCLUDED'
+                Detail = 'The Java target window could not be brought above the window covering its click point.'
+            }
         }
         Start-Sleep -Milliseconds 120
     }

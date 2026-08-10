@@ -80,6 +80,7 @@ if (-not [M2W.NativeMethods].GetMethod('SetForegroundWindow')) { throw 'Native f
 if (-not [M2W.NativeMethods].GetMethod('ShowWindowAsync')) { throw 'Native window restore is unavailable.' }
 if (-not [M2W.NativeMethods].GetMethod('ActivateWindow')) { throw 'Foreground-thread window activation is unavailable.' }
 if (-not [M2W.WindowActivationV1].GetMethod('ActivateWindow')) { throw 'Versioned window activation is unavailable.' }
+if (-not [M2W.WindowActivationV2].GetMethod('ActivateWindowAtPoint')) { throw 'Point-verified window activation is unavailable.' }
 if (-not [M2W.WindowEnumerationV1].GetMethod('GetVisibleWindows')) { throw 'Bounded native window enumeration is unavailable.' }
 $nativeWindowFixture = [pscustomobject]@{
     Width = 420
@@ -120,6 +121,10 @@ try {
         $_.Handle -eq $topLevelForm.Handle.ToInt64()
     })
     if ($nativeTopLevelMatch.Count -ne 1) { throw 'Native window enumeration did not find the visible fixture form.' }
+    $fixturePoint = $topLevelForm.PointToScreen([System.Drawing.Point]::new(40, 40))
+    if (-not [M2W.WindowActivationV2]::ActivateWindowAtPoint($topLevelForm.Handle, $fixturePoint.X, $fixturePoint.Y)) {
+        throw 'Point-verified window activation did not surface the visible fixture form.'
+    }
 }
 finally {
     $topLevelForm.Close()
