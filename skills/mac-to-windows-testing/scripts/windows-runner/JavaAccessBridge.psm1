@@ -645,7 +645,7 @@ function Get-M2WJavaAccessibilitySnapshot {
 function Invoke-M2WJavaAccessibleAction {
     param(
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
-        [Parameter(Mandatory)][int[]]$ChildPath,
+        [Parameter(Mandatory)][AllowEmptyCollection()][int[]]$ChildPath,
         [int]$ProcessId = 0,
         [string]$PreferredAction = 'click',
         [int]$TimeoutSeconds = 8,
@@ -700,7 +700,7 @@ function Invoke-M2WJavaAccessibleAction {
 function Invoke-M2WIsolatedJavaAccessibleAction {
     param(
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
-        [Parameter(Mandatory)][int[]]$ChildPath,
+        [Parameter(Mandatory)][AllowEmptyCollection()][int[]]$ChildPath,
         [int]$ProcessId = 0,
         [string]$PreferredAction = 'click',
         [int]$TimeoutSeconds = 8
