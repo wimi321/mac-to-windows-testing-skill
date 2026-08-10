@@ -615,6 +615,18 @@ function Get-M2WJavaChildPath {
     return [pscustomobject]@{ Available = $true; Path = [int[]]$path.ToArray() }
 }
 
+function Test-M2WJavaPhysicalClickAvailable {
+    param(
+        [Parameter(Mandatory)][IntPtr]$WindowHandle,
+        [Parameter(Mandatory)]$Node
+    )
+    if ($WindowHandle -eq [IntPtr]::Zero) { return $false }
+    if ([bool](Get-M2WValue -Object $Node -Name 'Offscreen' -Default $true)) { return $false }
+    $width = [double](Get-M2WValue -Object $Node -Name 'Width' -Default 0)
+    $height = [double](Get-M2WValue -Object $Node -Name 'Height' -Default 0)
+    return $width -gt 0 -and $height -gt 0
+}
+
 function Invoke-M2WUnifiedClick {
     param([Parameter(Mandatory)]$Match)
     if ((Get-M2WValue -Object $Match -Name 'Status' -Default 'READY') -eq 'BLOCKED') {
@@ -629,6 +641,22 @@ function Invoke-M2WUnifiedClick {
     }
     $windowHandle = Get-M2WRootNativeHandle -Root $Match.Root
     $processId = Get-M2WRootProcessId -Root $Match.Root
+    # Swing action listeners commonly open modal dialogs. Invoking those listeners through
+    # Java Access Bridge is synchronous and can block until the dialog closes. JAB still
+    # supplies the exact target bounds, while a native pointer click returns immediately and
+    # leaves the bridge available for evidence capture inside the newly opened dialog.
+    if (Test-M2WJavaPhysicalClickAvailable -WindowHandle $windowHandle -Node $Match.Node) {
+        if (-not [M2W.WindowActivationV1]::ActivateWindow($windowHandle)) {
+            throw 'Unable to activate the Java target window before clicking.'
+        }
+        Start-Sleep -Milliseconds 120
+        $bounds = Get-M2WUnifiedBounds -Match $Match
+        Invoke-M2WPointClick -X ($bounds.X + ($bounds.Width / 2)) -Y ($bounds.Y + ($bounds.Height / 2))
+        return [pscustomobject]@{
+            Status = 'PASS'; Provider = 'JavaAccessBridge'; Method = 'PhysicalFromJavaBounds'
+            Action = 'click'; Blocker = $null; Detail = 'Clicked native pointer coordinates resolved from Java accessibility bounds.'
+        }
+    }
     $childPath = Get-M2WJavaChildPath -Node $Match.Node
     if ($childPath.Available) {
         $accessibleAction = Invoke-M2WJavaAccessibleAction `

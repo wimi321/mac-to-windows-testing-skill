@@ -86,6 +86,10 @@ function Save-StepEvidence {
         [Parameter(Mandatory)][int]$Index,
         [Parameter(Mandatory)]$StepResult
     )
+    # A successful close invalidates the AutomationElement by design. Earlier checkpoints
+    # already contain the visual evidence, so probing the disposed element only creates a
+    # misleading EvidenceError.
+    if ([string]$StepResult.Action -eq 'close') { return }
     $prefix = '{0:D2}' -f $Index
     $shot = Join-Path $RunDirectory "screenshots\$ScenarioId-$prefix.png"
     $tree = Join-Path $RunDirectory "ui-trees\$ScenarioId-$prefix.json"
