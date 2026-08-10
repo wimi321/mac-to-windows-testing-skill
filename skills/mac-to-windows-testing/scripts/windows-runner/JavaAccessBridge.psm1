@@ -649,6 +649,7 @@ function Invoke-M2WJavaAccessibleAction {
         [int]$ProcessId = 0,
         [string]$PreferredAction = 'click',
         [int]$TimeoutSeconds = 8,
+        [int]$TestDelayMilliseconds = 0,
         [switch]$InProcess
     )
     if (-not $InProcess) {
@@ -657,7 +658,8 @@ function Invoke-M2WJavaAccessibleAction {
             -ChildPath $ChildPath `
             -ProcessId $ProcessId `
             -PreferredAction $PreferredAction `
-            -TimeoutSeconds $TimeoutSeconds
+            -TimeoutSeconds $TimeoutSeconds `
+            -TestDelayMilliseconds $TestDelayMilliseconds
     }
 
     $status = Initialize-M2WJavaAccessBridge -WindowHandle $WindowHandle -ProcessId $ProcessId
@@ -703,7 +705,8 @@ function Invoke-M2WIsolatedJavaAccessibleAction {
         [Parameter(Mandatory)][AllowEmptyCollection()][int[]]$ChildPath,
         [int]$ProcessId = 0,
         [string]$PreferredAction = 'click',
-        [int]$TimeoutSeconds = 8
+        [int]$TimeoutSeconds = 8,
+        [int]$TestDelayMilliseconds = 0
     )
     $actionScript = Join-Path $PSScriptRoot 'Invoke-JavaAccessibilityAction.ps1'
     if (-not (Test-Path -LiteralPath $actionScript -PathType Leaf)) {
@@ -735,6 +738,7 @@ function Invoke-M2WIsolatedJavaAccessibleAction {
             "-ChildPathCsv `"$childPathCsv`""
             "-PreferredAction `"$PreferredAction`""
             "-OutputPath `"$outputPath`""
+            "-TestDelayMilliseconds $TestDelayMilliseconds"
         ) -join ' '
         $startInfo.UseShellExecute = $false
         $startInfo.CreateNoWindow = $true

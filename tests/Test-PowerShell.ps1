@@ -54,26 +54,15 @@ $actionHelper = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-r
 if (-not (Test-Path -LiteralPath $actionHelper -PathType Leaf)) {
     throw 'Isolated Java accessibility action helper is missing.'
 }
-$previousActionDelay = $env:M2W_TEST_JAVA_ACTION_DELAY_MS
-try {
-    $env:M2W_TEST_JAVA_ACTION_DELAY_MS = '1800'
-    $actionTimeoutStart = Get-Date
-    $timeoutAction = Invoke-M2WJavaAccessibleAction `
-        -WindowHandle ([IntPtr]::Zero) -ChildPath ([int[]]@()) -TimeoutSeconds 1
-    if ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
-        throw "Java accessibility action did not return the timeout blocker: $($timeoutAction.Blocker)"
-    }
-    if (((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
-        throw 'Java accessibility action timeout exceeded its bounded shutdown allowance.'
-    }
+$actionTimeoutStart = Get-Date
+$timeoutAction = Invoke-M2WJavaAccessibleAction `
+    -WindowHandle ([IntPtr]::Zero) -ChildPath ([int[]]@()) -TimeoutSeconds 1 `
+    -TestDelayMilliseconds 1800
+if ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
+    throw "Java accessibility action did not return the timeout blocker: $($timeoutAction.Blocker)"
 }
-finally {
-    if ($null -eq $previousActionDelay) {
-        Remove-Item Env:M2W_TEST_JAVA_ACTION_DELAY_MS -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:M2W_TEST_JAVA_ACTION_DELAY_MS = $previousActionDelay
-    }
+if (((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
+    throw 'Java accessibility action timeout exceeded its bounded shutdown allowance.'
 }
 $previousCaptureDelay = $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS
 try {

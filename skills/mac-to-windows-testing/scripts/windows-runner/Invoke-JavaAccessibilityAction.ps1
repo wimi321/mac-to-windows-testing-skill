@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][int]$ProcessId,
     [Parameter(Mandatory)][string]$ChildPathCsv,
     [Parameter(Mandatory)][string]$PreferredAction,
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    [int]$TestDelayMilliseconds = 0
 )
 
 Set-StrictMode -Version Latest
@@ -19,10 +20,7 @@ function Write-ActionResult {
 }
 
 try {
-    $testDelay = 0
-    if ($env:M2W_TEST_JAVA_ACTION_DELAY_MS) {
-        [void][int]::TryParse($env:M2W_TEST_JAVA_ACTION_DELAY_MS, [ref]$testDelay)
-    }
+    $testDelay = [Math]::Max(0, $TestDelayMilliseconds)
     if ($testDelay -gt 0) { Start-Sleep -Milliseconds $testDelay }
 
     $childPath = [System.Collections.Generic.List[int]]::new()
