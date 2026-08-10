@@ -58,27 +58,19 @@ $actionTimeoutStart = Get-Date
 $timeoutAction = Invoke-M2WJavaAccessibleAction `
     -WindowHandle ([IntPtr]::Zero) -ChildPath ([int[]]@()) -TimeoutSeconds 1 `
     -TestDelayMilliseconds 1800
-if ($timeoutAction.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_HELPER_DENIED') {
-    Write-Warning 'The current Windows security context blocks child PowerShell processes; helper denial was classified correctly.'
-}
-elseif ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
+if ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
     throw "Java accessibility action did not return the timeout blocker: $($timeoutAction.Blocker)"
 }
-if ($timeoutAction.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT' `
-    -and ((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
+if (((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
     throw 'Java accessibility action timeout exceeded its bounded shutdown allowance.'
 }
 $timeoutStart = Get-Date
 $timeoutSnapshot = Get-M2WJavaAccessibilitySnapshot `
     -WindowHandle ([IntPtr]::Zero) -TimeoutSeconds 1 -TestDelayMilliseconds 1800
-if ($timeoutSnapshot.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_HELPER_DENIED') {
-    Write-Warning 'The current Windows security context blocks child PowerShell processes; capture helper denial was classified correctly.'
-}
-elseif ($timeoutSnapshot.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT') {
+if ($timeoutSnapshot.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT') {
     throw "Java accessibility capture did not return the timeout blocker: $($timeoutSnapshot.Blocker)"
 }
-if ($timeoutSnapshot.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT' `
-    -and ((Get-Date) - $timeoutStart).TotalSeconds -gt 5) {
+if (((Get-Date) - $timeoutStart).TotalSeconds -gt 5) {
     throw 'Java accessibility capture timeout exceeded its bounded shutdown allowance.'
 }
 

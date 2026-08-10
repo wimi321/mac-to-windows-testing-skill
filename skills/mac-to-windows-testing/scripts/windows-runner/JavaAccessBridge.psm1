@@ -516,6 +516,55 @@ function Initialize-M2WJavaAccessBridge {
     }
 }
 
+function Invoke-M2WPowerShellHelperRunspace {
+    param(
+        [Parameter(Mandatory)][string]$ScriptPath,
+        [Parameter(Mandatory)][hashtable]$Parameters,
+        [int]$TimeoutSeconds = 8
+    )
+
+    $pipeline = [System.Management.Automation.PowerShell]::Create()
+    $asyncResult = $null
+    $completed = $false
+    try {
+        [void]$pipeline.AddCommand($ScriptPath)
+        foreach ($entry in $Parameters.GetEnumerator()) {
+            [void]$pipeline.AddParameter([string]$entry.Key, $entry.Value)
+        }
+        $asyncResult = $pipeline.BeginInvoke()
+        $completed = $asyncResult.AsyncWaitHandle.WaitOne([Math]::Max(1, $TimeoutSeconds) * 1000)
+        if (-not $completed) {
+            try { [void]$pipeline.BeginStop($null, $null) } catch { }
+            return [pscustomobject]@{
+                Completed = $false
+                TimedOut = $true
+                Detail = "PowerShell runspace helper exceeded the $TimeoutSeconds second deadline."
+            }
+        }
+
+        $output = @($pipeline.EndInvoke($asyncResult)) | Out-String
+        $errors = @($pipeline.Streams.Error) | Out-String
+        return [pscustomobject]@{
+            Completed = $true
+            TimedOut = $false
+            Detail = $(if ($errors.Trim()) { $errors.Trim() } else { $output.Trim() })
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Completed = $false
+            TimedOut = $false
+            Detail = $_.Exception.Message
+        }
+    }
+    finally {
+        if ($completed -or -not $asyncResult) {
+            if ($asyncResult) { $asyncResult.AsyncWaitHandle.Dispose() }
+            $pipeline.Dispose()
+        }
+    }
+}
+
 function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
     param(
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
@@ -603,15 +652,52 @@ function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
     }
     catch {
         $detail = $_.Exception.Message
-        $blocker = if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
-            'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_HELPER_DENIED'
-        }
-        else {
-            'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_FAILED'
+        if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
+            $fallback = Invoke-M2WPowerShellHelperRunspace `
+                -ScriptPath $captureScript `
+                -Parameters @{
+                    ModulePath = $script:M2WJavaBridgeModulePath
+                    WindowHandle = $WindowHandle.ToInt64()
+                    ProcessId = $ProcessId
+                    Limit = $Limit
+                    OutputPath = $outputPath
+                    TestDelayMilliseconds = $TestDelayMilliseconds
+                } `
+                -TimeoutSeconds $TimeoutSeconds
+            if ($fallback.TimedOut) {
+                return [pscustomobject]@{
+                    Status = 'BLOCKED'
+                    Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT'
+                    Detail = "Java accessibility capture exceeded the $TimeoutSeconds second evidence deadline in the restricted-terminal fallback."
+                    DllPath = $null
+                    Nodes = @()
+                }
+            }
+            if (Test-Path -LiteralPath $outputPath -PathType Leaf) {
+                try {
+                    return Get-Content -LiteralPath $outputPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                }
+                catch {
+                    return [pscustomobject]@{
+                        Status = 'BLOCKED'
+                        Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_INVALID'
+                        Detail = "Restricted-terminal capture fallback returned invalid evidence: $($_.Exception.Message)"
+                        DllPath = $null
+                        Nodes = @()
+                    }
+                }
+            }
+            return [pscustomobject]@{
+                Status = 'BLOCKED'
+                Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_HELPER_DENIED'
+                Detail = "Child PowerShell was denied and the runspace fallback did not produce evidence: $($fallback.Detail)"
+                DllPath = $null
+                Nodes = @()
+            }
         }
         return [pscustomobject]@{
             Status = 'BLOCKED'
-            Blocker = $blocker
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_FAILED'
             Detail = $detail
             DllPath = $null
             Nodes = @()
@@ -808,11 +894,55 @@ function Invoke-M2WIsolatedJavaAccessibleAction {
     }
     catch {
         $detail = $_.Exception.Message
-        $blocker = if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
-            'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_HELPER_DENIED'
-        }
-        else {
-            'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_FAILED'
+        if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
+            $fallback = Invoke-M2WPowerShellHelperRunspace `
+                -ScriptPath $actionScript `
+                -Parameters @{
+                    ModulePath = $script:M2WJavaBridgeModulePath
+                    WindowHandle = $WindowHandle.ToInt64()
+                    ProcessId = $ProcessId
+                    ChildPathCsv = $childPathCsv
+                    PreferredAction = $PreferredAction
+                    OutputPath = $outputPath
+                    TestDelayMilliseconds = $TestDelayMilliseconds
+                } `
+                -TimeoutSeconds $TimeoutSeconds
+            if ($fallback.TimedOut) {
+                return [pscustomobject]@{
+                    Status = 'BLOCKED'
+                    Supported = $false
+                    Action = $null
+                    AvailableActions = @()
+                    FailureIndex = -1
+                    Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT'
+                    Detail = "Java accessibility action exceeded the $TimeoutSeconds second deadline in the restricted-terminal fallback; its outcome is unknown."
+                }
+            }
+            if (Test-Path -LiteralPath $outputPath -PathType Leaf) {
+                try {
+                    return Get-Content -LiteralPath $outputPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                }
+                catch {
+                    return [pscustomobject]@{
+                        Status = 'BLOCKED'
+                        Supported = $false
+                        Action = $null
+                        AvailableActions = @()
+                        FailureIndex = -1
+                        Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_INVALID'
+                        Detail = "Restricted-terminal action fallback returned invalid evidence: $($_.Exception.Message)"
+                    }
+                }
+            }
+            return [pscustomobject]@{
+                Status = 'BLOCKED'
+                Supported = $false
+                Action = $null
+                AvailableActions = @()
+                FailureIndex = -1
+                Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_HELPER_DENIED'
+                Detail = "Child PowerShell was denied and the runspace fallback did not produce evidence: $($fallback.Detail)"
+            }
         }
         return [pscustomobject]@{
             Status = 'BLOCKED'
@@ -820,7 +950,7 @@ function Invoke-M2WIsolatedJavaAccessibleAction {
             Action = $null
             AvailableActions = @()
             FailureIndex = -1
-            Blocker = $blocker
+            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_FAILED'
             Detail = $detail
         }
     }
