@@ -137,6 +137,73 @@ namespace M2W {
 }
 '@
     }
+    if (-not ('M2W.WindowEnumerationV1' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace M2W {
+  public sealed class NativeWindowInfoV1 {
+    public long Handle { get; set; }
+    public int ProcessId { get; set; }
+    public string Title { get; set; }
+    public string ClassName { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+  }
+
+  public static class WindowEnumerationV1 {
+    private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximum);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextLength(IntPtr window);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder className, int maximum);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out RECT rectangle);
+
+    public static NativeWindowInfoV1[] GetVisibleWindows(int requestedProcessId) {
+      List<NativeWindowInfoV1> windows = new List<NativeWindowInfoV1>();
+      EnumWindows(delegate(IntPtr window, IntPtr ignored) {
+        if (!IsWindowVisible(window)) { return true; }
+        uint processId;
+        GetWindowThreadProcessId(window, out processId);
+        if (requestedProcessId > 0 && processId != (uint)requestedProcessId) { return true; }
+        RECT rectangle;
+        if (!GetWindowRect(window, out rectangle)) { return true; }
+        int width = rectangle.Right - rectangle.Left;
+        int height = rectangle.Bottom - rectangle.Top;
+        if (width <= 0 || height <= 0) { return true; }
+
+        int titleLength = Math.Max(0, GetWindowTextLength(window));
+        StringBuilder title = new StringBuilder(titleLength + 1);
+        GetWindowText(window, title, title.Capacity);
+        StringBuilder className = new StringBuilder(256);
+        GetClassName(window, className, className.Capacity);
+        windows.Add(new NativeWindowInfoV1 {
+          Handle = window.ToInt64(),
+          ProcessId = (int)processId,
+          Title = title.ToString(),
+          ClassName = className.ToString(),
+          X = rectangle.Left,
+          Y = rectangle.Top,
+          Width = width,
+          Height = height
+        });
+        return true;
+      }, IntPtr.Zero);
+      return windows.ToArray();
+    }
+  }
+}
+'@
+    }
 }
 
 function Get-M2WCurrentSessionId {
@@ -367,6 +434,23 @@ function Test-M2WTopLevelWindowCandidate {
     return $true
 }
 
+function Test-M2WNativeWindowCandidate {
+    param(
+        [Parameter(Mandatory)]$Window,
+        [Parameter(Mandatory)]$Target
+    )
+    if ([double]$Window.Width -le 0 -or [double]$Window.Height -le 0) { return $false }
+    if (-not (Test-M2WTargetName -ActualName ([string]$Window.Title) -Target $Target)) { return $false }
+    $requestedType = [string](Get-M2WValue -Object $Target -Name 'controlType' -Default 'Window')
+    return -not $requestedType -or $requestedType -eq 'Window'
+}
+
+function Get-M2WNativeVisibleWindows {
+    param([int]$ProcessId = 0)
+    Initialize-M2WUiAutomation
+    return @([M2W.WindowEnumerationV1]::GetVisibleWindows($ProcessId))
+}
+
 function Find-M2WTopLevelWindow {
     param(
         [Parameter(Mandatory)]$Target,
@@ -374,10 +458,6 @@ function Find-M2WTopLevelWindow {
     )
     Initialize-M2WUiAutomation
     $desktop = [System.Windows.Automation.AutomationElement]::RootElement
-    $windowCondition = [System.Windows.Automation.PropertyCondition]::new(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [System.Windows.Automation.ControlType]::Window
-    )
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         try {
@@ -388,13 +468,18 @@ function Find-M2WTopLevelWindow {
             foreach ($candidate in $candidates) {
                 if (Test-M2WTopLevelWindowCandidate -Element $candidate -Target $Target) { return $candidate }
             }
-            # Swing owned dialogs may appear below their frame in UI Automation instead of as desktop children.
-            $ownedWindows = $desktop.FindAll(
-                [System.Windows.Automation.TreeScope]::Descendants,
-                $windowCondition
-            )
-            foreach ($candidate in $ownedWindows) {
-                if (Test-M2WTopLevelWindowCandidate -Element $candidate -Target $Target) { return $candidate }
+            # Never scan every desktop descendant: one stalled UIA provider can block the
+            # entire runner. Win32 enumeration includes owned Swing dialogs and remains
+            # independent from other applications' accessibility implementations.
+            foreach ($nativeWindow in @(Get-M2WNativeVisibleWindows)) {
+                if (-not (Test-M2WNativeWindowCandidate -Window $nativeWindow -Target $Target)) { continue }
+                try {
+                    $candidate = [System.Windows.Automation.AutomationElement]::FromHandle(
+                        [IntPtr]([int64]$nativeWindow.Handle)
+                    )
+                    if ($candidate) { return $candidate }
+                }
+                catch { }
             }
         }
         catch { }
@@ -1020,30 +1105,20 @@ function Get-M2WWindowIdentity {
 
 function Get-M2WVisibleWindowsForProcess {
     param([Parameter(Mandatory)][int]$ProcessId)
-    [System.Windows.Automation.Condition[]]$conditions = @(
-        [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-            $ProcessId
-        ),
-        [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Window
-        )
-    )
-    $condition = [System.Windows.Automation.AndCondition]::new($conditions)
-    try {
-        return @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-            [System.Windows.Automation.TreeScope]::Descendants,
-            $condition
-        ) | Where-Object {
-            try {
-                $bounds = $_.Current.BoundingRectangle
-                -not $_.Current.IsOffscreen -and $bounds.Width -gt 0 -and $bounds.Height -gt 0
-            }
-            catch { $false }
-        })
+    $windows = [System.Collections.Generic.List[System.Windows.Automation.AutomationElement]]::new()
+    $identities = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($nativeWindow in @(Get-M2WNativeVisibleWindows -ProcessId $ProcessId)) {
+        try {
+            $element = [System.Windows.Automation.AutomationElement]::FromHandle(
+                [IntPtr]([int64]$nativeWindow.Handle)
+            )
+            if (-not $element) { continue }
+            $identity = Get-M2WWindowIdentity -Window $element
+            if ($identities.Add($identity)) { $windows.Add($element) }
+        }
+        catch { }
     }
-    catch { return @() }
+    return @($windows)
 }
 
 function Close-M2WExplorationWindow {

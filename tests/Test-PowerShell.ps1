@@ -102,6 +102,7 @@ if (-not [M2W.NativeMethods].GetMethod('SetForegroundWindow')) { throw 'Native f
 if (-not [M2W.NativeMethods].GetMethod('ShowWindowAsync')) { throw 'Native window restore is unavailable.' }
 if (-not [M2W.NativeMethods].GetMethod('ActivateWindow')) { throw 'Foreground-thread window activation is unavailable.' }
 if (-not [M2W.WindowActivationV1].GetMethod('ActivateWindow')) { throw 'Versioned window activation is unavailable.' }
+if (-not [M2W.WindowEnumerationV1].GetMethod('GetVisibleWindows')) { throw 'Bounded native window enumeration is unavailable.' }
 $topLevelForm = [System.Windows.Forms.Form]::new()
 $topLevelForm.Text = 'M2W top-level discovery fixture'
 $topLevelForm.Width = 420
@@ -114,6 +115,10 @@ try {
         controlType = 'Window'
     }) -TimeoutSeconds 3
     if (-not $topLevelMatch) { throw 'Top-level window discovery did not find the visible fixture form.' }
+    $nativeTopLevelMatch = @([M2W.WindowEnumerationV1]::GetVisibleWindows($PID) | Where-Object {
+        $_.Handle -eq $topLevelForm.Handle.ToInt64()
+    })
+    if ($nativeTopLevelMatch.Count -ne 1) { throw 'Native window enumeration did not find the visible fixture form.' }
 }
 finally {
     $topLevelForm.Close()
