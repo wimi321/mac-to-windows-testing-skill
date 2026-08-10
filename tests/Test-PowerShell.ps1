@@ -68,25 +68,18 @@ if ($timeoutAction.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT' `
     -and ((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
     throw 'Java accessibility action timeout exceeded its bounded shutdown allowance.'
 }
-$previousCaptureDelay = $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS
-try {
-    $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS = '1800'
-    $timeoutStart = Get-Date
-    $timeoutSnapshot = Get-M2WJavaAccessibilitySnapshot -WindowHandle ([IntPtr]::Zero) -TimeoutSeconds 1
-    if ($timeoutSnapshot.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT') {
-        throw "Java accessibility capture did not return the timeout blocker: $($timeoutSnapshot.Blocker)"
-    }
-    if (((Get-Date) - $timeoutStart).TotalSeconds -gt 5) {
-        throw 'Java accessibility capture timeout exceeded its bounded shutdown allowance.'
-    }
+$timeoutStart = Get-Date
+$timeoutSnapshot = Get-M2WJavaAccessibilitySnapshot `
+    -WindowHandle ([IntPtr]::Zero) -TimeoutSeconds 1 -TestDelayMilliseconds 1800
+if ($timeoutSnapshot.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_HELPER_DENIED') {
+    Write-Warning 'The current Windows security context blocks child PowerShell processes; capture helper denial was classified correctly.'
 }
-finally {
-    if ($null -eq $previousCaptureDelay) {
-        Remove-Item Env:M2W_TEST_JAVA_CAPTURE_DELAY_MS -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS = $previousCaptureDelay
-    }
+elseif ($timeoutSnapshot.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT') {
+    throw "Java accessibility capture did not return the timeout blocker: $($timeoutSnapshot.Blocker)"
+}
+if ($timeoutSnapshot.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_TIMEOUT' `
+    -and ((Get-Date) - $timeoutStart).TotalSeconds -gt 5) {
+    throw 'Java accessibility capture timeout exceeded its bounded shutdown allowance.'
 }
 
 $uiAutomationModule = Import-Module (Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\WindowsUiAutomation.psm1') -Force -PassThru

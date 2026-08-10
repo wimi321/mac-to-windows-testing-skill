@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][long]$WindowHandle,
     [Parameter(Mandatory)][int]$ProcessId,
     [Parameter(Mandatory)][int]$Limit,
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    [int]$TestDelayMilliseconds = 0
 )
 
 Set-StrictMode -Version Latest
@@ -18,10 +19,7 @@ function Write-CaptureResult {
 }
 
 try {
-    $testDelay = 0
-    if ($env:M2W_TEST_JAVA_CAPTURE_DELAY_MS) {
-        [void][int]::TryParse($env:M2W_TEST_JAVA_CAPTURE_DELAY_MS, [ref]$testDelay)
-    }
+    $testDelay = [Math]::Max(0, $TestDelayMilliseconds)
     if ($testDelay -gt 0) { Start-Sleep -Milliseconds $testDelay }
 
     Import-Module $ModulePath -Force

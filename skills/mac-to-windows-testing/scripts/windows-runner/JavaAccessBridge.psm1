@@ -521,7 +521,8 @@ function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
         [Parameter(Mandatory)][IntPtr]$WindowHandle,
         [int]$ProcessId = 0,
         [int]$Limit = 5000,
-        [int]$TimeoutSeconds = 8
+        [int]$TimeoutSeconds = 8,
+        [int]$TestDelayMilliseconds = 0
     )
     $captureScript = Join-Path $PSScriptRoot 'Capture-JavaAccessibility.ps1'
     if (-not (Test-Path -LiteralPath $captureScript -PathType Leaf)) {
@@ -549,6 +550,7 @@ function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
             "-ProcessId $ProcessId"
             "-Limit $Limit"
             "-OutputPath `"$outputPath`""
+            "-TestDelayMilliseconds $TestDelayMilliseconds"
         ) -join ' '
         $startInfo.UseShellExecute = $false
         $startInfo.CreateNoWindow = $true
@@ -600,10 +602,17 @@ function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
         }
     }
     catch {
+        $detail = $_.Exception.Message
+        $blocker = if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
+            'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_HELPER_DENIED'
+        }
+        else {
+            'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_FAILED'
+        }
         return [pscustomobject]@{
             Status = 'BLOCKED'
-            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_CAPTURE_FAILED'
-            Detail = $_.Exception.Message
+            Blocker = $blocker
+            Detail = $detail
             DllPath = $null
             Nodes = @()
         }
@@ -622,11 +631,13 @@ function Get-M2WJavaAccessibilitySnapshot {
         [int]$ProcessId = 0,
         [int]$Limit = 5000,
         [int]$TimeoutSeconds = 8,
+        [int]$TestDelayMilliseconds = 0,
         [switch]$InProcess
     )
     if (-not $InProcess) {
         return Invoke-M2WIsolatedJavaAccessibilitySnapshot `
-            -WindowHandle $WindowHandle -ProcessId $ProcessId -Limit $Limit -TimeoutSeconds $TimeoutSeconds
+            -WindowHandle $WindowHandle -ProcessId $ProcessId -Limit $Limit `
+            -TimeoutSeconds $TimeoutSeconds -TestDelayMilliseconds $TestDelayMilliseconds
     }
 
     $status = Initialize-M2WJavaAccessBridge -WindowHandle $WindowHandle -ProcessId $ProcessId
