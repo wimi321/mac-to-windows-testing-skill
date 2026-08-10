@@ -796,14 +796,21 @@ function Invoke-M2WIsolatedJavaAccessibleAction {
         }
     }
     catch {
+        $detail = $_.Exception.Message
+        $blocker = if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
+            'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_HELPER_DENIED'
+        }
+        else {
+            'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_FAILED'
+        }
         return [pscustomobject]@{
             Status = 'BLOCKED'
             Supported = $false
             Action = $null
             AvailableActions = @()
             FailureIndex = -1
-            Blocker = 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_FAILED'
-            Detail = $_.Exception.Message
+            Blocker = $blocker
+            Detail = $detail
         }
     }
     finally {

@@ -58,10 +58,14 @@ $actionTimeoutStart = Get-Date
 $timeoutAction = Invoke-M2WJavaAccessibleAction `
     -WindowHandle ([IntPtr]::Zero) -ChildPath ([int[]]@()) -TimeoutSeconds 1 `
     -TestDelayMilliseconds 1800
-if ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
+if ($timeoutAction.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_HELPER_DENIED') {
+    Write-Warning 'The current Windows security context blocks child PowerShell processes; helper denial was classified correctly.'
+}
+elseif ($timeoutAction.Blocker -ne 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
     throw "Java accessibility action did not return the timeout blocker: $($timeoutAction.Blocker)"
 }
-if (((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
+if ($timeoutAction.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT' `
+    -and ((Get-Date) - $actionTimeoutStart).TotalSeconds -gt 5) {
     throw 'Java accessibility action timeout exceeded its bounded shutdown allowance.'
 }
 $previousCaptureDelay = $env:M2W_TEST_JAVA_CAPTURE_DELAY_MS
