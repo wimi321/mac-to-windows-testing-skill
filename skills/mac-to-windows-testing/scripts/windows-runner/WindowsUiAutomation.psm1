@@ -374,6 +374,10 @@ function Find-M2WTopLevelWindow {
     )
     Initialize-M2WUiAutomation
     $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+    $windowCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Window
+    )
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         try {
@@ -382,6 +386,14 @@ function Find-M2WTopLevelWindow {
                 [System.Windows.Automation.Condition]::TrueCondition
             )
             foreach ($candidate in $candidates) {
+                if (Test-M2WTopLevelWindowCandidate -Element $candidate -Target $Target) { return $candidate }
+            }
+            # Swing owned dialogs may appear below their frame in UI Automation instead of as desktop children.
+            $ownedWindows = $desktop.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                $windowCondition
+            )
+            foreach ($candidate in $ownedWindows) {
                 if (Test-M2WTopLevelWindowCandidate -Element $candidate -Target $Target) { return $candidate }
             }
         }
@@ -1100,6 +1112,18 @@ function Invoke-M2WSafeExploration {
             $match = Find-M2WUnifiedElement -Target ([pscustomobject]$target) -Root $Root -TimeoutSeconds 3
             if (-not $match) { throw 'Safe exploration target was no longer available.' }
             $invocation = Invoke-M2WUnifiedClick -Match $match
+            if ($invocation.Status -eq 'BLOCKED' -and $invocation.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT') {
+                $observedWindows = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId | Where-Object {
+                    $beforeIdentities -notcontains (Get-M2WWindowIdentity -Window $_)
+                })
+                if ($observedWindows.Count) {
+                    $invocation = [pscustomobject]@{
+                        Status = 'PASS'; Provider = 'JavaAccessBridge'; Method = 'AccessibleActionObservedNewWindow'
+                        Action = 'click'; Blocker = $null
+                        Detail = 'The native action return timed out, but a new same-process window confirmed the requested state change.'
+                    }
+                }
+            }
             if ($invocation.Status -ne 'PASS') {
                 $result.Status = $invocation.Status
                 $result.Error = $invocation.Detail
@@ -1408,9 +1432,28 @@ function Invoke-M2WStep {
             if ((Test-M2WDangerousTarget -Target $target) -and -not $AllowDestructiveActions) {
                 return [pscustomobject]@{ Status = 'BLOCKED'; Action = $action; Summary = 'Dangerous target denied by profile policy.'; Blocker = 'BLOCKED_DANGEROUS_ACTION' }
             }
+            $processId = Get-M2WRootProcessId -Root $Window
+            $beforeWindowIdentities = @()
+            if ($processId -gt 0) {
+                $beforeWindowIdentities = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId | ForEach-Object {
+                    Get-M2WWindowIdentity -Window $_
+                })
+            }
             $match = Find-M2WUnifiedElement -Target $target -Root $Window -TimeoutSeconds 10
             if (-not $match) { return [pscustomobject]@{ Status = 'FAIL'; Action = $action; Summary = 'Click target not found.' } }
             $invocation = Invoke-M2WUnifiedClick -Match $match
+            if ($invocation.Status -eq 'BLOCKED' -and $invocation.Blocker -eq 'BLOCKED_JAVA_ACCESS_BRIDGE_ACTION_TIMEOUT' -and $processId -gt 0) {
+                $observedWindows = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId | Where-Object {
+                    $beforeWindowIdentities -notcontains (Get-M2WWindowIdentity -Window $_)
+                })
+                if ($observedWindows.Count) {
+                    $invocation = [pscustomobject]@{
+                        Status = 'PASS'; Provider = 'JavaAccessBridge'; Method = 'AccessibleActionObservedNewWindow'
+                        Action = 'click'; Blocker = $null
+                        Detail = 'The native action return timed out, but a new same-process window confirmed the requested state change.'
+                    }
+                }
+            }
             if ($invocation.Status -ne 'PASS') {
                 return [pscustomobject]@{
                     Status = $invocation.Status; Action = $action; Provider = $invocation.Provider
