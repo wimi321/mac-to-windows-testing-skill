@@ -15,8 +15,12 @@ $worker = Join-Path $RunnerRoot 'runner\Worker.ps1'
 if (-not (Test-Path -LiteralPath $worker)) { throw "Runner worker not found: $worker" }
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$worker`" -RunnerRoot `"$RunnerRoot`""
 $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $principal.UserId
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4) -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
+    throw "Runner task was not retained after registration: $taskName"
+}
 $javaAccessBridge = Enable-M2WJavaAccessBridge
 [pscustomobject]@{
     status = 'INSTALLED'

@@ -26,6 +26,15 @@ if ($installRunnerText -notmatch '-LogonType\s+Interactive(?:\s|$)') {
 if ($installRunnerText -match '-LogonType\s+InteractiveToken(?:\s|$)') {
     throw 'InteractiveToken is not a valid ScheduledTasks logon type on Windows PowerShell 5.1.'
 }
+if ($installRunnerText -notmatch 'New-ScheduledTaskTrigger\s+-AtLogOn') {
+    throw 'Interactive runner must retain a current-user logon trigger.'
+}
+if ($installRunnerText -notmatch 'Register-ScheduledTask[^\r\n]+-Trigger\s+\$trigger') {
+    throw 'Interactive runner registration must include its logon trigger.'
+}
+if ($installRunnerText -notmatch 'Get-ScheduledTask\s+-TaskName\s+\$taskName') {
+    throw 'Interactive runner installation must verify that the task was retained.'
+}
 
 $javaAccessBridgeModule = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\JavaAccessBridge.psm1'
 Import-Module $javaAccessBridgeModule -Force
