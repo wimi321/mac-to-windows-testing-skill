@@ -719,7 +719,10 @@ function Test-M2WJavaPhysicalClickAvailable {
     # Java Access Bridge can report a control as showing even when its bounds extend under
     # the Windows taskbar after a DPI or remote-display change. A native click there would
     # activate the shell instead of the application, so use the isolated JAB action instead.
-    $workArea = [System.Windows.Forms.Screen]::FromHandle($WindowHandle).WorkingArea
+    $center = [System.Drawing.Point]::new(
+        [int][Math]::Round($x + ($width / 2)),
+        [int][Math]::Round($y + ($height / 2)))
+    $workArea = [System.Windows.Forms.Screen]::FromPoint($center).WorkingArea
     return $x -ge $workArea.Left `
         -and $y -ge $workArea.Top `
         -and ($x + $width) -le $workArea.Right `
