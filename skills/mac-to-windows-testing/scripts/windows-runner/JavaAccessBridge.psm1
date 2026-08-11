@@ -652,7 +652,7 @@ function Invoke-M2WIsolatedJavaAccessibilitySnapshot {
     }
     catch {
         $detail = $_.Exception.Message
-        if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
+        if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|\u62D2\u7EDD\u8BBF\u95EE|\u5B58\u53D6\u88AB\u62D2') {
             $fallback = Invoke-M2WPowerShellHelperRunspace `
                 -ScriptPath $captureScript `
                 -Parameters @{
@@ -894,7 +894,7 @@ function Invoke-M2WIsolatedJavaAccessibleAction {
     }
     catch {
         $detail = $_.Exception.Message
-        if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|拒绝访问|存取被拒') {
+        if ($detail -match '(?i)access\s+is\s+denied|access\s+denied|\u62D2\u7EDD\u8BBF\u95EE|\u5B58\u53D6\u88AB\u62D2') {
             $fallback = Invoke-M2WPowerShellHelperRunspace `
                 -ScriptPath $actionScript `
                 -Parameters @{

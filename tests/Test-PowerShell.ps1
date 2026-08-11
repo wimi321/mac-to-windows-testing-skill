@@ -8,6 +8,20 @@ $files = @(
 )
 $failed = $false
 foreach ($file in $files) {
+    $bytes = [IO.File]::ReadAllBytes($file.FullName)
+    $hasUtf8Bom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+    $text = [Text.Encoding]::UTF8.GetString($bytes)
+    $hasNonAscii = $false
+    foreach ($character in $text.ToCharArray()) {
+        if ([int]$character -gt 127) {
+            $hasNonAscii = $true
+            break
+        }
+    }
+    if ($hasNonAscii -and -not $hasUtf8Bom) {
+        $failed = $true
+        Write-Error "$($file.FullName): non-ASCII PowerShell source must include a UTF-8 BOM for Windows PowerShell 5.1."
+    }
     $tokens = $null
     $errors = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
