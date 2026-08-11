@@ -224,6 +224,23 @@ $unknownNode = [pscustomobject]@{ Name = 'Launch mystery'; ControlType = 'Button
 if ((Get-M2WSafeControlCategory -Node $settingsNode) -ne 'dialog') { throw 'Safe settings control was not classified.' }
 if (Get-M2WSafeControlCategory -Node $paymentNode) { throw 'Dangerous control was classified as safe.' }
 if (Get-M2WSafeControlCategory -Node $unknownNode) { throw 'Unknown control was classified as safe.' }
+$unnamedPopup = [pscustomobject]@{ Current = [pscustomobject]@{ Name = '' } }
+$namedDialog = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Settings' } }
+$unnamedPopupDetected = & $uiAutomationModule {
+    param($Windows)
+    Test-M2WTransientExplorationWindows -Windows $Windows
+} @($unnamedPopup)
+$namedDialogDetected = & $uiAutomationModule {
+    param($Windows)
+    Test-M2WTransientExplorationWindows -Windows $Windows
+} @($namedDialog)
+$emptyPopupDetected = & $uiAutomationModule {
+    param($Windows)
+    Test-M2WTransientExplorationWindows -Windows $Windows
+} @()
+if (-not $unnamedPopupDetected) { throw 'An unnamed transient popup was not detected.' }
+if ($namedDialogDetected) { throw 'A named dialog was misclassified as a transient popup.' }
+if ($emptyPopupDetected) { throw 'An empty popup collection was classified as transient.' }
 
 $auditRoot = Join-Path ([IO.Path]::GetTempPath()) ("m2w-audit-" + [Guid]::NewGuid().ToString('N'))
 try {

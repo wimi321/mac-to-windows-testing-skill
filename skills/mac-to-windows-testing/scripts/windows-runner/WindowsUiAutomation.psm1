@@ -1243,6 +1243,18 @@ function Wait-M2WExplorationWindowsClosed {
     return $false
 }
 
+function Test-M2WTransientExplorationWindows {
+    param([Parameter(Mandatory)][object[]]$Windows)
+    if (-not $Windows.Count) { return $false }
+    foreach ($window in $Windows) {
+        try {
+            if (-not [string]::IsNullOrWhiteSpace([string]$window.Current.Name)) { return $false }
+        }
+        catch { return $false }
+    }
+    return $true
+}
+
 function Invoke-M2WSafeExploration {
     param(
         [Parameter(Mandatory)][System.Windows.Automation.AutomationElement]$Root,
@@ -1351,12 +1363,24 @@ function Invoke-M2WSafeExploration {
                 UiTree = $treePath; JavaUiTree = $trees.JavaAccessBridgePath
             }
             $newWindowIdentities = @($newWindows | ForEach-Object { Get-M2WWindowIdentity -Window $_ })
-            foreach ($window in $newWindows) { Close-M2WExplorationWindow -Window $window }
+            if (Test-M2WTransientExplorationWindows -Windows $newWindows) {
+                try { $Root.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ESC}') } catch { }
+                Start-Sleep -Milliseconds 180
+            }
+            $remainingWindows = @(Get-M2WVisibleWindowsForProcess -ProcessId $processId | Where-Object {
+                $newWindowIdentities -contains (Get-M2WWindowIdentity -Window $_)
+            })
+            foreach ($window in $remainingWindows) { Close-M2WExplorationWindow -Window $window }
             if ($newWindowIdentities.Count) {
                 $result.CleanupVerified = Wait-M2WExplorationWindowsClosed `
                     -ProcessId $processId -WindowIdentities $newWindowIdentities
                 if (-not $result.CleanupVerified) {
-                    throw 'Exploration window remained visible after the automated close action.'
+                    try { $Root.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('{ESC}') } catch { }
+                    $result.CleanupVerified = Wait-M2WExplorationWindowsClosed `
+                        -ProcessId $processId -WindowIdentities $newWindowIdentities -TimeoutMilliseconds 800
+                    if (-not $result.CleanupVerified) {
+                        throw 'Exploration window remained visible after the automated close action.'
+                    }
                 }
             }
             if ($candidate.Category -eq 'menu' -and -not $newWindows.Count) {
