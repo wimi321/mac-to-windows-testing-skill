@@ -36,6 +36,33 @@ if ($installRunnerText -notmatch 'Get-ScheduledTask\s+-TaskName\s+\$taskName') {
     throw 'Interactive runner installation must verify that the task was retained.'
 }
 
+$runnerCommandModule = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\RunnerCommand.psm1'
+Import-Module $runnerCommandModule -Force
+$quotedCommand = '"C:\Windows\System32\where.exe" cmd.exe'
+$quotedInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$quotedInfo.FileName = 'cmd.exe'
+$quotedInfo.Arguments = ConvertTo-M2WCmdArguments -Command $quotedCommand
+$quotedInfo.UseShellExecute = $false
+$quotedInfo.CreateNoWindow = $true
+$quotedInfo.RedirectStandardOutput = $true
+$quotedInfo.RedirectStandardError = $true
+$quotedProcess = [System.Diagnostics.Process]::new()
+$quotedProcess.StartInfo = $quotedInfo
+[void]$quotedProcess.Start()
+$quotedOutput = $quotedProcess.StandardOutput.ReadToEndAsync()
+$quotedError = $quotedProcess.StandardError.ReadToEndAsync()
+if (-not $quotedProcess.WaitForExit(10000)) {
+    try { $quotedProcess.Kill() } catch { }
+    throw 'Quoted executable path probe timed out.'
+}
+$quotedProcess.WaitForExit()
+if ($quotedProcess.ExitCode -ne 0) {
+    throw "Quoted executable path probe failed: $($quotedError.GetAwaiter().GetResult())"
+}
+if (-not $quotedOutput.GetAwaiter().GetResult().Trim()) {
+    throw 'Quoted executable path probe returned no output.'
+}
+
 $javaAccessBridgeModule = Join-Path $root 'skills\mac-to-windows-testing\scripts\windows-runner\JavaAccessBridge.psm1'
 Import-Module $javaAccessBridgeModule -Force
 Initialize-M2WJavaAccessBridgeTypes

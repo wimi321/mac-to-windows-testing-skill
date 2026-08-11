@@ -6,6 +6,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WindowsUiAutomation.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'RunnerCommand.psm1') -Force
 
 function Write-JsonFile {
     param([Parameter(Mandatory)]$Value, [Parameter(Mandatory)][string]$Path)
@@ -27,7 +28,7 @@ function Invoke-LoggedCommand {
     $stderr = "$LogPath.stderr.log"
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = 'cmd.exe'
-    $startInfo.Arguments = @('/d', '/s', '/c', $Command) -join ' '
+    $startInfo.Arguments = ConvertTo-M2WCmdArguments -Command $Command
     $startInfo.WorkingDirectory = $WorkingDirectory
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
@@ -187,7 +188,7 @@ try {
     $result.commands += [pscustomobject]@{ Name = 'artifact'; Status = 'PASS'; Path = $artifact }
 
     $launchLog = Join-Path $runDirectory 'logs\launch'
-    $launchProcess = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', [string]$manifest.commands.launch) `
+    $launchProcess = Start-Process -FilePath 'cmd.exe' -ArgumentList (ConvertTo-M2WCmdArguments -Command ([string]$manifest.commands.launch)) `
         -WorkingDirectory $workspace -RedirectStandardOutput "$launchLog.stdout.log" -RedirectStandardError "$launchLog.stderr.log" -PassThru
     Start-Sleep -Milliseconds 750
     if ($launchProcess.HasExited -and $launchProcess.ExitCode -ne 0) {
