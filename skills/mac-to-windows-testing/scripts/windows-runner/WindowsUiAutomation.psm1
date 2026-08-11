@@ -1244,7 +1244,7 @@ function Wait-M2WExplorationWindowsClosed {
 }
 
 function Test-M2WTransientExplorationWindows {
-    param([Parameter(Mandatory)][object[]]$Windows)
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Windows)
     if (-not $Windows.Count) { return $false }
     foreach ($window in $Windows) {
         try {
