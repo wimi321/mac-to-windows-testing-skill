@@ -140,6 +140,8 @@ UU CLI 可以发现设备、发起连接和打开远程终端，但不能被误�
 
 在内置的六缺陷基准中，真实 Windows 验收命中了全部 6 项预设缺陷，没有产生额外误报，并在干净模式回归中通过。该数据只代表可复现 Fixture，不代表所有软件上的通用视觉准确率。详见[脱敏证据报告](examples/reports/windows-fixture-150-percent.md)。
 
+首个大型应用验收也已完成：LizzieYzy Next 在真实 Windows 上通过 2,162 项测试、7 个 Java Swing UI 场景、定向修复和独立完整回归，并达到可发布状态。详见[脱敏的 LizzieYzy Next 验收报告](examples/reports/lizzieyzy-next-windows.md)。
+
 ## 默认安全
 
 - Runner 使用当前 Windows 用户和交互式计划任务，不安装系统服务。

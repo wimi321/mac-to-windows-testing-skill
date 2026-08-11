@@ -140,6 +140,8 @@ The repository includes a reproducible WinForms fixture with intentional clippin
 
 On the bundled six-defect fixture benchmark, the real Windows run detected all six expected defects with no unexpected finding, then passed the clean regression. This is a reproducible fixture result, not a claim of universal visual-model accuracy. See the [sanitized evidence report](examples/reports/windows-fixture-150-percent.md).
 
+The first large-application acceptance also completed a 2,162-test, seven-scenario Java Swing regression for LizzieYzy Next, including a focused repair and a separate release-eligible full run. See the [sanitized LizzieYzy Next report](examples/reports/lizzieyzy-next-windows.md).
+
 ## Safe by default
 
 - The runner uses the current Windows user and an interactive scheduled task, not a system service.
