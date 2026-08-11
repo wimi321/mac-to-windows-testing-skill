@@ -37,6 +37,12 @@ Mac source + AI
 
 The result is always `PASS`, `FAIL`, or `BLOCKED`. Missing evidence never becomes a qualified pass.
 
+<div align="center">
+  <img src="assets/demo.gif" alt="Real Windows fixture run: defects detected, safe settings exploration, and a clean PASS regression" width="880">
+  <br>
+  <sub>Real Windows evidence at 150% scaling: intentional defects fail, safe exploration cleans up its window, and the repaired fixture passes.</sub>
+</div>
+
 ## 60-second start
 
 Install the skill for one agent:
@@ -73,6 +79,8 @@ The first Windows login, remote-device authorization, SSH/WinRM setup, and profi
 | Geometry | Missing controls, overlap, clipping risk, child bounds, abnormal blank regions and owner hierarchy |
 | Visual | Native Windows PNGs checked for text clipping, alignment, contrast, broken icons, stale loading and wrong z-order |
 
+Safe exploration is conservative by design: it automatically tries only recognized navigation, tabs, menus, settings, details and about controls. Unknown actions and anything resembling payment, deletion, publishing, uninstall or reset are skipped.
+
 If a visual model is unavailable, the verdict is `BLOCKED_VISION_UNAVAILABLE`. If the desktop is locked, it is `BLOCKED_DESKTOP_LOCKED`. The tool never falls back to “looks fine” from a terminal log.
 
 ## Supported routes
@@ -91,7 +99,7 @@ UU CLI discovers devices, starts connections, and opens a remote terminal. It is
 Ready-to-adapt profiles live in [`examples/`](examples/):
 
 - LizzieYzy Next: a real large Swing application with dynamic title matching and interaction-graph discovery.
-- Java Swing: bundled JVM, modal ownership, menus, EDT response, fonts and DPI.
+- Java Swing: direct Java Access Bridge control trees, bundled JVM, modal ownership, menus, EDT response, fonts and DPI.
 - Electron: first paint, renderer/GPU health, native dialogs and packaged resources.
 - Tauri: WebView2, native commands, file dialogs, decorations and updater paths.
 - .NET: WinForms/WPF scaling, runtime architecture, accessibility and self-contained publishing.
@@ -105,10 +113,10 @@ Ready-to-adapt profiles live in [`examples/`](examples/):
 2. The packaged application launches and remains responsive on Windows.
 3. Every required scenario completes.
 4. Deterministic UI assertions pass.
-5. Native PNG screenshots and matching UI Automation trees exist.
+5. Every passed scenario has an explicitly reviewed native PNG and its matching declared UI tree.
 6. AI visual review passes at or above the configured confidence threshold.
 7. Evidence is sanitized before publication.
-8. A repair is followed by focused retest and full regression.
+8. A repair is followed by a tracked focused retest and a separate full regression.
 
 The controller enforces this contract while merging deterministic and visual results. A high-confidence AI answer without native evidence is downgraded to `BLOCKED_EVIDENCE_MISSING`.
 
@@ -129,6 +137,10 @@ Each run is self-contained:
 ```
 
 The repository includes a reproducible WinForms fixture with intentional clipping, overlap, off-screen placement, disabled controls, missing click response, and abnormal blank content. The companion clean mode verifies that repairs do not create false positives. CI validates the controller, schemas, installers and PowerShell syntax; **CI is deliberately not presented as real desktop acceptance**.
+
+On the bundled six-defect fixture benchmark, the real Windows run detected all six expected defects with no unexpected finding, then passed the clean regression. This is a reproducible fixture result, not a claim of universal visual-model accuracy. See the [sanitized evidence report](examples/reports/windows-fixture-150-percent.md).
+
+The first large-application acceptance also completed a 2,162-test, seven-scenario Java Swing regression for LizzieYzy Next, including a focused repair and a separate release-eligible full run. See the [sanitized LizzieYzy Next report](examples/reports/lizzieyzy-next-windows.md).
 
 ## Safe by default
 

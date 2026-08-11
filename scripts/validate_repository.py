@@ -30,6 +30,9 @@ def main() -> int:
         SKILL / 'SKILL.md',
         SKILL / 'agents' / 'openai.yaml',
         SKILL / 'scripts' / 'mac2win_test.py',
+        SKILL / 'scripts' / 'windows-runner' / 'Capture-JavaAccessibility.ps1',
+        SKILL / 'scripts' / 'windows-runner' / 'Invoke-JavaAccessibilityAction.ps1',
+        SKILL / 'scripts' / 'windows-runner' / 'JavaAccessBridge.psm1',
         SKILL / 'scripts' / 'windows-runner' / 'Invoke-MacToWindowsTest.ps1',
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
@@ -56,6 +59,14 @@ def main() -> int:
         match = forbidden.search(path.read_text(encoding='utf-8', errors='replace'))
         if match:
             fail(f'Potential credential in {path.relative_to(ROOT)}: {match.group(0)[:24]}...')
+
+        if path.suffix.lower() in {'.ps1', '.psm1'}:
+            for line_number, line in enumerate(path.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+                if 'Get-Content' in line and 'ConvertFrom-Json' in line and '-Encoding UTF8' not in line:
+                    fail(
+                        f'PowerShell JSON input must declare UTF-8 explicitly: '
+                        f'{path.relative_to(ROOT)}:{line_number}'
+                    )
 
     print('Repository validation passed.')
     return 0

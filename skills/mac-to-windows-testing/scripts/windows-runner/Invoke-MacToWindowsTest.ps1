@@ -6,6 +6,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WindowsUiAutomation.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'RunnerCommand.psm1') -Force
 
 function Write-JsonFile {
     param([Parameter(Mandatory)]$Value, [Parameter(Mandatory)][string]$Path)
@@ -27,7 +28,7 @@ function Invoke-LoggedCommand {
     $stderr = "$LogPath.stderr.log"
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = 'cmd.exe'
-    $startInfo.Arguments = @('/d', '/s', '/c', $Command) -join ' '
+    $startInfo.Arguments = ConvertTo-M2WCmdArguments -Command $Command
     $startInfo.WorkingDirectory = $WorkingDirectory
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
@@ -63,7 +64,7 @@ function Test-TrustedManifest {
     param($Manifest, [string]$Root)
     $trustPath = Join-Path $Root 'trusted-profiles.json'
     if (-not (Test-Path -LiteralPath $trustPath)) { return $false }
-    try { $parsed = Get-Content -LiteralPath $trustPath -Raw | ConvertFrom-Json } catch { return $false }
+    try { $parsed = Get-Content -LiteralPath $trustPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $false }
     $trusted = [System.Collections.Generic.List[object]]::new()
     foreach ($candidate in @($parsed)) {
         if ($candidate.PSObject.Properties['profileSha256']) {
@@ -86,12 +87,16 @@ function Save-StepEvidence {
         [Parameter(Mandatory)][int]$Index,
         [Parameter(Mandatory)]$StepResult
     )
+    # A successful close invalidates the AutomationElement by design. Earlier checkpoints
+    # already contain the visual evidence, so probing the disposed element only creates a
+    # misleading EvidenceError.
+    if ([string]$StepResult.Action -eq 'close') { return }
     $prefix = '{0:D2}' -f $Index
     $shot = Join-Path $RunDirectory "screenshots\$ScenarioId-$prefix.png"
     $tree = Join-Path $RunDirectory "ui-trees\$ScenarioId-$prefix.json"
     try {
         Save-M2WScreenshot -Path $shot -Window $Window | Out-Null
-        Export-M2WUiTree -Path $tree -Root $Window | Out-Null
+        $trees = Export-M2WAccessibleTrees -Root $Window -UiAutomationPath $tree
         $focusedName = ''
         try {
             $focusedElement = [System.Windows.Automation.AutomationElement]::FocusedElement
@@ -101,6 +106,13 @@ function Save-StepEvidence {
         $StepResult | Add-Member -NotePropertyName Evidence -NotePropertyValue ([pscustomobject]@{
             Screenshot = $shot
             UiTree = $tree
+            JavaUiTree = $trees.JavaAccessBridgePath
+            AccessibilityProviders = [pscustomobject]@{
+                UIAutomationNodes = @($trees.UiAutomationNodes).Count
+                JavaAccessBridgeStatus = $trees.JavaAccessBridge.Status
+                JavaAccessBridgeNodes = @($trees.JavaAccessBridge.Nodes).Count
+                JavaAccessBridgeBlocker = $trees.JavaAccessBridge.Blocker
+            }
             Focused = $focusedName
             CapturedAt = (Get-Date).ToUniversalTime().ToString('o')
         }) -Force
@@ -110,7 +122,7 @@ function Save-StepEvidence {
     }
 }
 
-$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $runId = [string]$manifest.runId
 $runDirectory = Join-Path $RunnerRoot "runs\$runId"
 $resultPath = Join-Path $runDirectory 'result.json'
@@ -125,6 +137,8 @@ $result = [ordered]@{
     blocker = $null
     visualConfidenceThreshold = [double]$manifest.automation.visualConfidenceThreshold
     profileSha256 = [string]$manifest.profileSha256
+    repair = $manifest.repair
+    completionEligible = $false
     source = $manifest.source
     redaction = $manifest.redaction
     environment = $null
@@ -174,7 +188,7 @@ try {
     $result.commands += [pscustomobject]@{ Name = 'artifact'; Status = 'PASS'; Path = $artifact }
 
     $launchLog = Join-Path $runDirectory 'logs\launch'
-    $launchProcess = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', [string]$manifest.commands.launch) `
+    $launchProcess = Start-Process -FilePath 'cmd.exe' -ArgumentList (ConvertTo-M2WCmdArguments -Command ([string]$manifest.commands.launch)) `
         -WorkingDirectory $workspace -RedirectStandardOutput "$launchLog.stdout.log" -RedirectStandardError "$launchLog.stderr.log" -PassThru
     Start-Sleep -Milliseconds 750
     if ($launchProcess.HasExited -and $launchProcess.ExitCode -ne 0) {
@@ -192,7 +206,7 @@ try {
         if (-not $windowTarget.PSObject.Properties['controlType']) {
             $windowTarget | Add-Member -NotePropertyName controlType -NotePropertyValue 'Window'
         }
-        $window = Find-M2WElement -Target $windowTarget -TimeoutSeconds 20
+        $window = Find-M2WTopLevelWindow -Target $windowTarget -TimeoutSeconds 20
         if (-not $window) {
             $scenarioResult.status = 'FAIL'
             $scenarioResult.summary = 'Expected application window was not found.'

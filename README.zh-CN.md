@@ -37,6 +37,12 @@ Mac 源码 + AI
 
 最终结果只能是 `PASS`、`FAIL` 或 `BLOCKED`。证据不足绝不会包装成“基本通过”。
 
+<div align="center">
+  <img src="assets/demo.gif" alt="真实 Windows Fixture 验收：发现缺陷、安全探索设置窗口、修复后完整回归通过" width="880">
+  <br>
+  <sub>150% 缩放下的 Windows 原生证据：故障模式正确失败，安全探索会清理新窗口，修复后的干净模式通过。</sub>
+</div>
+
 ## 60 秒开始
 
 先安装到一个 AI 客户端：
@@ -73,6 +79,8 @@ mac2win-test run --transport ssh --host windows-lab
 | 几何 | 控件缺失、重叠、裁切风险、子控件越界、异常空白和窗口层级 |
 | 视觉 | Windows 原生截图中的文字裁切、错位、对比度、图标损坏、加载卡住和遮挡 |
 
+自动探索采用保守白名单：只会尝试已识别的导航、Tab、菜单、设置、详情和关于控件。未知动作，以及付款、删除、发布、卸载、重置等危险操作都会自动跳过。
+
 当前 AI 没有图像能力时返回 `BLOCKED_VISION_UNAVAILABLE`；Windows 锁屏时返回 `BLOCKED_DESKTOP_LOCKED`。工具不会根据一段终端日志猜测 UI“应该没问题”。
 
 ## 支持的连接方式
@@ -91,7 +99,7 @@ UU CLI 可以发现设备、发起连接和打开远程终端，但不能被误�
 [`examples/`](examples/) 提供可直接改造的配置：
 
 - LizzieYzy Next：真实大型 Swing 应用样例，覆盖动态标题匹配和交互图发现。
-- Java Swing：内置 JVM、弹窗层级、菜单、EDT 响应、字体和 DPI。
+- Java Swing：直接读取 Java Access Bridge 控件树，并检查内置 JVM、弹窗层级、菜单、EDT 响应、字体和 DPI。
 - Electron：首帧、渲染/GPU 进程、原生弹窗和打包资源路径。
 - Tauri：WebView2、原生命令、文件对话框、窗口装饰和更新器。
 - .NET：WinForms/WPF 缩放、运行时架构、无障碍和独立发布。
@@ -105,10 +113,10 @@ UU CLI 可以发现设备、发起连接和打开远程终端，但不能被误�
 2. 正式打包程序在 Windows 上启动并保持响应。
 3. 所有必测场景完成。
 4. 确定性 UI 断言通过。
-5. 存在 Windows 原生 PNG 截图及对应 UI Automation 控件树。
+5. 每个通过场景都有被 AI 明确审阅的 Windows 原生 PNG 及该场景声明的对应控件树。
 6. AI 视觉审查达到配置的置信度门槛。
 7. 对外发布前完成证据脱敏。
-8. 修复后先定向复测，再跑完整回归。
+8. 修复后先记录定向复测，再单独跑一次完整回归。
 
 控制器会在合并确定性结果和视觉结果时强制执行这些规则。即使 AI 给出高置信度 `PASS`，没有原生证据也会降级为 `BLOCKED_EVIDENCE_MISSING`。
 
@@ -129,6 +137,10 @@ UU CLI 可以发现设备、发起连接和打开远程终端，但不能被误�
 ```
 
 仓库内置一个可重复的 WinForms 故障程序，稳定制造文字裁切、控件重叠、越界、禁用、点击无响应和异常空白；干净模式用于验证修复后没有误报。CI 只验证控制器、Schema、安装脚本和 PowerShell 语法，**不会冒充真实 Windows UI 验收**。
+
+在内置的六缺陷基准中，真实 Windows 验收命中了全部 6 项预设缺陷，没有产生额外误报，并在干净模式回归中通过。该数据只代表可复现 Fixture，不代表所有软件上的通用视觉准确率。详见[脱敏证据报告](examples/reports/windows-fixture-150-percent.md)。
+
+首个大型应用验收也已完成：LizzieYzy Next 在真实 Windows 上通过 2,162 项测试、7 个 Java Swing UI 场景、定向修复和独立完整回归，并达到可发布状态。详见[脱敏的 LizzieYzy Next 验收报告](examples/reports/lizzieyzy-next-windows.md)。
 
 ## 默认安全
 

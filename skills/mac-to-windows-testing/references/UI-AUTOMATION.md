@@ -15,6 +15,17 @@ Prefer selectors in this order:
 
 Do not use fixed screen coordinates as the normal path.
 
+## Java Swing
+
+Windows UI Automation often exposes only the top-level `SunAwtFrame` for Swing applications. The runner therefore enables Java Access Bridge once during runner installation and combines both providers:
+
+- UI Automation remains the primary provider for native, Electron, Tauri, and .NET controls.
+- Java Access Bridge walks the Swing accessibility tree by `AccessibleContext`, records the English and localized role/state values, and releases every returned Java object.
+- Swing assertions and clicks fall back to accessible name, role, state, and native screen bounds when UI Automation cannot see the child control.
+- A Swing root with no Java child tree is `BLOCKED_JAVA_ACCESS_BRIDGE_UNAVAILABLE` or `BLOCKED_JAVA_ACCESS_BRIDGE_NOT_ENABLED`, never a successful empty discovery.
+
+The Windows test account must be logged out and back in, or the Java application must be restarted, after Access Bridge is enabled for the first time.
+
 ## Deterministic assertions
 
 - Window and control exist within the deadline.
@@ -32,4 +43,6 @@ If the screenshot is loading, blank, cropped, obscured, or from the wrong window
 
 ## Safe crawling
 
-Discovery mode may enumerate and focus controls automatically. It may invoke only controls categorized as navigation, view, settings, tab, expand, collapse, open, cancel, back, or close. Unknown controls are not clicked. Destructive text and automation IDs are denied by default.
+`discover` records the interaction graph without changing application state. `audit` runs deterministic geometry and accessibility checks against the primary provider. `explore` may invoke only controls classified as tabs, navigation, settings, details, about, or top-level menus. Unknown controls are not clicked. Destructive text and automation IDs are denied by default.
+
+For every explored control, capture before/after native screenshots and an updated accessibility tree. If no safe control can be identified, return `BLOCKED_SAFE_EXPLORATION_EMPTY` rather than claiming that exploration passed.

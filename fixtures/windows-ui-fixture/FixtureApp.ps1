@@ -98,6 +98,44 @@ $offscreen.Location = if ($Mode -eq 'clean') { [System.Drawing.Point]::new(28, 2
 $offscreen.Size = [System.Drawing.Size]::new(180, 42)
 $panel.Controls.Add($offscreen)
 
+$script:settingsWindow = $null
+$settingsButton = [System.Windows.Forms.Button]::new()
+Set-Identity $settingsButton 'SettingsAction' 'Open settings'
+$settingsButton.Text = 'Open settings'
+$settingsButton.Location = [System.Drawing.Point]::new(228, 206)
+$settingsButton.Size = [System.Drawing.Size]::new(165, 42)
+$settingsButton.Add_Click({
+    if (-not $script:settingsWindow -or $script:settingsWindow.IsDisposed) {
+        $script:settingsWindow = [System.Windows.Forms.Form]::new()
+        $script:settingsWindow.Text = 'Fixture settings'
+        $script:settingsWindow.Name = 'FixtureSettingsWindow'
+        $script:settingsWindow.AccessibleName = 'Fixture settings'
+        $script:settingsWindow.StartPosition = 'CenterParent'
+        $script:settingsWindow.ClientSize = [System.Drawing.Size]::new(420, 210)
+        $script:settingsWindow.Font = [System.Drawing.Font]::new('Segoe UI', 10)
+
+        $settingsText = [System.Windows.Forms.Label]::new()
+        Set-Identity $settingsText 'SettingsSummary' 'Settings summary'
+        $settingsText.Text = 'Safe exploration opened this non-destructive window.'
+        $settingsText.Location = [System.Drawing.Point]::new(32, 40)
+        $settingsText.AutoSize = $true
+        $script:settingsWindow.Controls.Add($settingsText)
+
+        $closeSettings = [System.Windows.Forms.Button]::new()
+        Set-Identity $closeSettings 'CloseSettings' 'Close settings'
+        $closeSettings.Text = 'Close'
+        $closeSettings.Location = [System.Drawing.Point]::new(276, 132)
+        $closeSettings.Size = [System.Drawing.Size]::new(110, 38)
+        $closeSettings.Add_Click({ $script:settingsWindow.Close() })
+        $script:settingsWindow.Controls.Add($closeSettings)
+        $script:settingsWindow.Show($form)
+    }
+    else {
+        $script:settingsWindow.Activate()
+    }
+})
+$panel.Controls.Add($settingsButton)
+
 $disabled = [System.Windows.Forms.Button]::new()
 Set-Identity $disabled 'ExpectedEnabledAction' 'Continue test'
 $disabled.Text = 'Continue test'

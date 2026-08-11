@@ -258,8 +258,26 @@ def validate_profile(profile: dict[str, Any]) -> None:
     ]
     if any(re.search(pattern, serialized) for pattern in secret_patterns):
         raise CliError("Profiles must not contain credentials or private keys")
-    allowed_actions = {"wait", "discover", "screenshot", "assert", "click", "type", "shortcut", "close"}
+    allowed_actions = {
+        "wait",
+        "discover",
+        "audit",
+        "explore",
+        "screenshot",
+        "assert",
+        "click",
+        "type",
+        "shortcut",
+        "close",
+    }
     allowed_assertions = {"exists", "notExists", "enabled", "focusable", "focused", "visible", "textEquals", "withinWindow", "noOverlap"}
+    allowed_audit_findings = {
+        "MISSING_ACCESSIBLE_NAME",
+        "NONPOSITIVE_BOUNDS",
+        "OFFSCREEN_ACTION",
+        "OUTSIDE_WINDOW",
+        "ACTIONABLE_OVERLAP",
+    }
     seen_ids: set[str] = set()
 
     def validate_target(target: Any, label: str) -> None:
@@ -293,6 +311,14 @@ def validate_profile(profile: dict[str, Any]) -> None:
                 validate_target(step["otherTarget"], f"Scenario {scenario['id']} otherTarget")
             if action == "assert" and step.get("condition", "exists") not in allowed_assertions:
                 raise CliError(f"Scenario {scenario['id']} has an unsupported assertion")
+            if action == "explore":
+                limit = step.get("maxControls", 12)
+                if not isinstance(limit, int) or not 1 <= limit <= 50:
+                    raise CliError(f"Scenario {scenario['id']} explore maxControls must be from 1 to 50")
+            if action in {"audit", "explore"}:
+                fail_on = step.get("failOn", [])
+                if not isinstance(fail_on, list) or any(item not in allowed_audit_findings for item in fail_on):
+                    raise CliError(f"Scenario {scenario['id']} has an unsupported audit finding in failOn")
 
 
 def git_value(project_root: pathlib.Path, *args: str) -> str:
@@ -317,7 +343,36 @@ def profile_sha(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def compile_manifest(config_path: pathlib.Path, project_root: pathlib.Path, output: pathlib.Path | None) -> pathlib.Path:
+def normalize_run_context(profile: dict[str, Any], context: dict[str, Any] | None) -> dict[str, Any]:
+    raw = context or {}
+    repair_round = raw.get("round", 0)
+    phase = raw.get("phase", "initial")
+    parent_run_id = raw.get("parentRunId")
+    if not isinstance(repair_round, int) or repair_round < 0:
+        raise CliError("repair round must be a non-negative integer")
+    repair_limit = int(profile["automation"]["repairLimit"])
+    if repair_round > repair_limit:
+        raise CliError(f"repair round {repair_round} exceeds automation.repairLimit={repair_limit}")
+    if phase not in {"initial", "focused", "full-regression"}:
+        raise CliError(f"Unsupported validation phase: {phase!r}")
+    if repair_round == 0 and phase != "initial":
+        raise CliError("repair round 0 must use the initial validation phase")
+    if repair_round > 0 and not parent_run_id:
+        raise CliError("repair runs require a parent run ID")
+    return {
+        "round": repair_round,
+        "limit": repair_limit,
+        "phase": phase,
+        "parentRunId": parent_run_id,
+    }
+
+
+def compile_manifest(
+    config_path: pathlib.Path,
+    project_root: pathlib.Path,
+    output: pathlib.Path | None,
+    run_context: dict[str, Any] | None = None,
+) -> pathlib.Path:
     profile = load_profile(config_path)
     validate_profile(profile)
     run_id = new_run_id()
@@ -335,6 +390,7 @@ def compile_manifest(config_path: pathlib.Path, project_root: pathlib.Path, outp
         "project": profile["project"],
         "commands": profile["commands"],
         "automation": profile["automation"],
+        "repair": normalize_run_context(profile, run_context),
         "scenarios": profile["scenarios"],
         "redaction": {
             "patterns": profile.get("redaction", {}).get("patterns", []),
@@ -555,35 +611,116 @@ def finalize_result(result_path: pathlib.Path, review_path: pathlib.Path) -> dic
     confidence = float(review.get("confidence", 0))
     runner_status = result.get("status")
     run_dir = result_path.resolve().parent
-    screenshots = list((run_dir / "screenshots").glob("*.png")) if (run_dir / "screenshots").is_dir() else []
-    ui_trees = list((run_dir / "ui-trees").glob("*.json")) if (run_dir / "ui-trees").is_dir() else []
-    evidence_complete = bool(screenshots and ui_trees)
+
+    def resolve_evidence_file(raw_path: Any, directory: str) -> pathlib.Path | None:
+        value = str(raw_path or "").strip()
+        if not value:
+            return None
+        normalized = value.replace("\\", "/")
+        candidates = [run_dir / normalized, run_dir / directory / pathlib.PurePosixPath(normalized).name]
+        path = pathlib.Path(value)
+        if path.is_absolute():
+            candidates.insert(0, path)
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+                resolved.relative_to(run_dir)
+            except (OSError, ValueError):
+                continue
+            if resolved.is_file():
+                return resolved
+        return None
+
+    passed_scenarios = {
+        str(scenario.get("id")): scenario
+        for scenario in result.get("scenarios", [])
+        if scenario.get("status") == "PASS" and scenario.get("id")
+    }
+    declared_evidence: dict[str, dict[str, set[str]]] = {}
+    for scenario_id, scenario in passed_scenarios.items():
+        screenshots: set[str] = set()
+        ui_trees: set[str] = set()
+        for step in scenario.get("steps", []):
+            evidence = step.get("Evidence") or step.get("evidence") or {}
+            screenshot = evidence.get("Screenshot") or evidence.get("screenshot")
+            ui_tree = evidence.get("UiTree") or evidence.get("uiTree")
+            if screenshot:
+                screenshots.add(pathlib.PureWindowsPath(str(screenshot)).name)
+            if ui_tree:
+                ui_trees.add(pathlib.PureWindowsPath(str(ui_tree)).name)
+        declared_evidence[scenario_id] = {"screenshots": screenshots, "uiTrees": ui_trees}
+
+    reviewed_evidence = review.get("reviewedEvidence", [])
+    invalid_reviewed_evidence: list[str] = []
+    covered_scenarios: set[str] = set()
+    if not isinstance(reviewed_evidence, list):
+        invalid_reviewed_evidence.append("reviewedEvidence must be a list")
+        reviewed_evidence = []
+    for entry in reviewed_evidence:
+        if not isinstance(entry, dict):
+            invalid_reviewed_evidence.append("reviewedEvidence entry is not an object")
+            continue
+        scenario_id = str(entry.get("scenario", ""))
+        screenshot = resolve_evidence_file(entry.get("screenshot"), "screenshots")
+        ui_tree = resolve_evidence_file(entry.get("uiTree"), "ui-trees")
+        if scenario_id not in passed_scenarios:
+            invalid_reviewed_evidence.append(f"unknown scenario: {scenario_id}")
+            continue
+        expected = declared_evidence.get(scenario_id, {})
+        if not screenshot or not ui_tree:
+            invalid_reviewed_evidence.append(f"missing evidence for scenario: {scenario_id}")
+            continue
+        if screenshot.name not in expected.get("screenshots", set()):
+            invalid_reviewed_evidence.append(f"undeclared screenshot for scenario: {scenario_id}")
+            continue
+        if ui_tree.name not in expected.get("uiTrees", set()):
+            invalid_reviewed_evidence.append(f"undeclared UI tree for scenario: {scenario_id}")
+            continue
+        covered_scenarios.add(scenario_id)
+
+    missing_scenarios = sorted(set(passed_scenarios) - covered_scenarios)
+    evidence_complete = bool(passed_scenarios) and not missing_scenarios and not invalid_reviewed_evidence
     invalid_findings = []
     for finding in review.get("findings", []):
-        evidence_path = pathlib.Path(str(finding.get("screenshot", "")))
-        if not evidence_path.is_absolute():
-            evidence_path = run_dir / evidence_path
-        if not evidence_path.is_file():
+        if not resolve_evidence_file(finding.get("screenshot"), "screenshots"):
             invalid_findings.append(str(finding.get("screenshot", "")))
     if runner_status in {"FAIL", "BLOCKED"}:
         final_status = runner_status
+    elif review_status == "BLOCKED":
+        final_status = "BLOCKED"
+        result["blocker"] = review.get("blocker") or "BLOCKED_VISUAL_UNCERTAIN"
+    elif (
+        review_status == "FAIL"
+        and review.get("findings")
+        and not invalid_findings
+        and covered_scenarios
+        and not invalid_reviewed_evidence
+    ):
+        final_status = "FAIL"
     elif not evidence_complete or invalid_findings:
         final_status = "BLOCKED"
         result["blocker"] = "BLOCKED_EVIDENCE_MISSING"
     elif review_status == "PASS" and confidence >= threshold:
         final_status = "PASS"
-    elif review_status == "FAIL":
-        final_status = "FAIL"
     else:
         final_status = "BLOCKED"
         result["blocker"] = review.get("blocker") or "BLOCKED_VISUAL_UNCERTAIN"
     result["status"] = final_status
     result["finishedAt"] = utc_now()
+    repair = result.get("repair") or {}
+    result["completionEligible"] = not (
+        final_status == "PASS" and repair.get("phase") == "focused"
+    )
+    if final_status == "PASS" and not result["completionEligible"]:
+        result["nextRequiredPhase"] = "full-regression"
     result["visualReview"] = {
         "status": review_status,
         "confidence": confidence,
         "findingCount": len(review.get("findings", [])),
         "evidenceComplete": evidence_complete,
+        "coveredScenarios": sorted(covered_scenarios),
+        "missingScenarios": missing_scenarios,
+        "invalidReviewedEvidence": invalid_reviewed_evidence,
         "invalidFindingScreenshots": invalid_findings,
     }
     dump_json(result_path, result)
@@ -702,7 +839,12 @@ def trust_profile_remote(transport: str, host: str, config_path: pathlib.Path) -
 
 def run_over_remote(args: argparse.Namespace) -> int:
     project_root = pathlib.Path(args.project_root).resolve()
-    manifest_path = compile_manifest(pathlib.Path(args.config).resolve(), project_root, None)
+    manifest_path = compile_manifest(
+        pathlib.Path(args.config).resolve(),
+        project_root,
+        None,
+        run_context_from_args(args),
+    )
     manifest = load_json(manifest_path)
     run_id = manifest["runId"]
     root = remote_root(args.host, args.transport)
@@ -789,6 +931,40 @@ def init_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_context_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "round": int(getattr(args, "repair_round", 0)),
+        "phase": str(getattr(args, "phase", "initial")),
+        "parentRunId": getattr(args, "parent_run_id", None),
+    }
+
+
+def add_repair_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--repair-round", type=int, default=0)
+    parser.add_argument("--phase", choices=["initial", "focused", "full-regression"], default="initial")
+    parser.add_argument("--parent-run-id")
+
+
+def write_agent_handoff(manifest_path: pathlib.Path, transport: str) -> pathlib.Path:
+    manifest = load_json(manifest_path)
+    handoff = {
+        "schemaVersion": 1,
+        "runId": manifest["runId"],
+        "status": "READY_FOR_WINDOWS_AGENT",
+        "transport": transport,
+        "manifest": str(manifest_path),
+        "requiredFinalStates": sorted(FINAL_STATES),
+        "instructions": [
+            "Run the manifest in the unlocked interactive Windows session.",
+            "Return native screenshots, UI trees, logs, environment data, and result.json.",
+            "Perform visual review and finalize to PASS, FAIL, or BLOCKED.",
+        ],
+    }
+    path = manifest_path.parent / "automation-handoff.json"
+    dump_json(path, handoff)
+    return path
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mac2win-test", description="Evidence-first real Windows UI validation from a Mac controller.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
@@ -809,10 +985,16 @@ def build_parser() -> argparse.ArgumentParser:
     compile_cmd.add_argument("--config", default="mac-to-windows-testing.yaml")
     compile_cmd.add_argument("--project-root", default=".")
     compile_cmd.add_argument("--output")
+    add_repair_arguments(compile_cmd)
 
     def do_compile(ns: argparse.Namespace) -> int:
         output = pathlib.Path(ns.output).resolve() if ns.output else None
-        path = compile_manifest(pathlib.Path(ns.config).resolve(), pathlib.Path(ns.project_root).resolve(), output)
+        path = compile_manifest(
+            pathlib.Path(ns.config).resolve(),
+            pathlib.Path(ns.project_root).resolve(),
+            output,
+            run_context_from_args(ns),
+        )
         print(path)
         return 0
 
@@ -824,25 +1006,24 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--config", default="mac-to-windows-testing.yaml")
     run_cmd.add_argument("--project-root", default=".")
     run_cmd.add_argument("--timeout", type=int, default=900)
+    add_repair_arguments(run_cmd)
 
     def do_run(ns: argparse.Namespace) -> int:
         if ns.transport in {"ssh", "winrm"}:
             if not ns.host:
                 raise CliError(f"--host is required for the {ns.transport} transport")
             return run_over_remote(ns)
-        manifest = compile_manifest(pathlib.Path(ns.config).resolve(), pathlib.Path(ns.project_root).resolve(), None)
-        result = {
-            "schemaVersion": 1,
-            "runId": load_json(manifest)["runId"],
-            "status": "BLOCKED",
-            "blocker": "BLOCKED_AUTOMATION_CHANNEL",
-            "createdAt": utc_now(),
-            "scenarios": [],
-        }
-        dump_json(manifest.parent / "result.json", result)
+        manifest = compile_manifest(
+            pathlib.Path(ns.config).resolve(),
+            pathlib.Path(ns.project_root).resolve(),
+            None,
+            run_context_from_args(ns),
+        )
+        handoff = write_agent_handoff(manifest, ns.transport)
         print(f"Prepared manifest: {manifest}")
-        print("This transport must be continued by a vision-capable agent in the interactive Windows session.")
-        return 2
+        print(f"Prepared automation handoff: {handoff}")
+        print("A vision-capable agent must now execute the manifest in the interactive Windows session.")
+        return 3
 
     run_cmd.set_defaults(func=do_run)
 

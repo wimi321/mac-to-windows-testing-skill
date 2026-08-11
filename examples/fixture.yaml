@@ -2,7 +2,7 @@ version: 1
 project:
   name: "Windows UI defect fixture"
   repository: "https://github.com/wimi321/mac-to-windows-testing-skill"
-  windowsWorkspace: "C:\\MacToWindowsTesting\\mac-to-windows-testing-skill"
+  windowsWorkspace: "%USERPROFILE%\\source\\repos\\mac-to-windows-testing-skill"
   artifact: "fixtures\\windows-ui-fixture\\FixtureApp.ps1"
 commands:
   build: "powershell.exe -NoProfile -Command \"$ErrorActionPreference='Stop'; [void][System.Management.Automation.Language.Parser]::ParseFile('fixtures\\windows-ui-fixture\\FixtureApp.ps1',[ref]$null,[ref]$null)\""
@@ -80,3 +80,24 @@ scenarios:
           name: "Evidence summary is ready."
         condition: "exists"
         checkpoint: "blank"
+  - id: "layout-audit"
+    title: "Detect all deterministic geometry defects"
+    window:
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "audit"
+        checkpoint: "defect-layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+  - id: "safe-exploration"
+    title: "Dangerous and unknown controls remain untouched during exploration"
+    window:
+      name: "Mac-to-Windows Fixture"
+    steps:
+      - action: "explore"
+        checkpoint: "fixture-navigation"
+        maxControls: 4
+      - action: "screenshot"
+        checkpoint: "after-safe-exploration"

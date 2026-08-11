@@ -9,7 +9,7 @@ commands:
   test: "mvn.cmd -B -Dfmt.skip=true test"
   launch: "javaw.exe -jar target\\lizzie-yzy2.5.3-shaded.jar"
 automation:
-  transport: "ssh"
+  transport: "uu-computer-use"
   repairLimit: 3
   visualConfidenceThreshold: 0.9
   allowDestructiveActions: false
@@ -25,6 +25,12 @@ scenarios:
         seconds: 8
       - action: "discover"
         checkpoint: "main-interaction-map"
+      - action: "audit"
+        checkpoint: "main-layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
       - action: "assert"
         target:
           nameContains: "LizzieYzy Next"
@@ -32,3 +38,117 @@ scenarios:
         condition: "visible"
       - action: "screenshot"
         checkpoint: "main-window"
+      - action: "click"
+        checkpoint: "open-auto-setup"
+        target:
+          name: "一键设置"
+          controlType: "Button"
+  - id: "auto-setup-dialog"
+    title: "KataGo one-click setup opens in front of the main window"
+    window:
+      nameContains: "KataGo 一键设置"
+      controlType: "Window"
+    steps:
+      - action: "wait"
+        seconds: 1
+      - action: "assert"
+        target:
+          nameContains: "KataGo 一键设置"
+          controlType: "Window"
+        condition: "visible"
+      - action: "discover"
+        checkpoint: "auto-setup-interaction-map"
+      - action: "audit"
+        checkpoint: "auto-setup-layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+      - action: "screenshot"
+        checkpoint: "auto-setup-dialog"
+      - action: "close"
+  - id: "open-remote-compute"
+    title: "Remote compute opens from the main window"
+    window:
+      nameContains: "LizzieYzy Next"
+      controlType: "Window"
+    steps:
+      - action: "click"
+        checkpoint: "open-remote-compute"
+        target:
+          name: "远程算力"
+          controlType: "Button"
+  - id: "remote-compute-dialog"
+    title: "Remote compute is readable and safely explorable"
+    window:
+      name: "远程算力"
+      controlType: "Window"
+    steps:
+      - action: "wait"
+        seconds: 1
+      - action: "assert"
+        target:
+          name: "远程算力"
+          controlType: "Window"
+        condition: "visible"
+      - action: "discover"
+        checkpoint: "remote-compute-interaction-map"
+      - action: "audit"
+        checkpoint: "remote-compute-layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+      - action: "screenshot"
+        checkpoint: "remote-compute-dialog"
+      - action: "close"
+  - id: "open-strength-evaluation"
+    title: "Strength evaluation opens from the main window"
+    window:
+      nameContains: "LizzieYzy Next"
+      controlType: "Window"
+    steps:
+      - action: "click"
+        checkpoint: "open-strength-evaluation"
+        target:
+          name: "棋力评估"
+          controlType: "Button"
+  - id: "strength-evaluation-dialog"
+    title: "Strength evaluation remains visible at Windows DPI scaling"
+    window:
+      name: "棋力评估"
+      controlType: "Window"
+    steps:
+      - action: "wait"
+        seconds: 1
+      - action: "assert"
+        target:
+          name: "棋力评估"
+          controlType: "Window"
+        condition: "visible"
+      - action: "discover"
+        checkpoint: "strength-evaluation-interaction-map"
+      - action: "audit"
+        checkpoint: "strength-evaluation-layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+      - action: "screenshot"
+        checkpoint: "strength-evaluation-dialog"
+      - action: "close"
+  - id: "safe-main-navigation"
+    title: "Main-window menus can be explored without unsafe actions"
+    window:
+      nameContains: "LizzieYzy Next"
+      controlType: "Window"
+    steps:
+      - action: "explore"
+        checkpoint: "main-safe-navigation"
+        maxControls: 8
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+      - action: "screenshot"
+        checkpoint: "main-after-safe-navigation"

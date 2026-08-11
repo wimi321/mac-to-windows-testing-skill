@@ -3,13 +3,28 @@
   "$id": "https://github.com/wimi321/mac-to-windows-testing-skill/schemas/ai-review.schema.json",
   "title": "Mac-to-Windows AI visual review",
   "type": "object",
-  "required": ["schemaVersion", "runId", "status", "confidence", "findings"],
+  "required": ["schemaVersion", "runId", "status", "confidence", "reviewedEvidence", "findings"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "runId": { "type": "string", "minLength": 1 },
     "status": { "enum": ["PASS", "FAIL", "BLOCKED"] },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
     "blocker": { "type": ["string", "null"] },
+    "reviewedEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scenario", "checkpoint", "screenshot", "uiTree"],
+        "properties": {
+          "scenario": { "type": "string", "minLength": 1 },
+          "checkpoint": { "type": "string", "minLength": 1 },
+          "screenshot": { "type": "string", "minLength": 1 },
+          "uiTree": { "type": "string", "minLength": 1 },
+          "javaUiTree": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
     "findings": {
       "type": "array",
       "items": {

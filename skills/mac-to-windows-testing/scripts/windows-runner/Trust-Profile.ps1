@@ -6,10 +6,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+[IO.Directory]::CreateDirectory($RunnerRoot) | Out-Null
 $path = Join-Path $RunnerRoot 'trusted-profiles.json'
 $entries = [System.Collections.Generic.List[object]]::new()
 if (Test-Path -LiteralPath $path) {
-    $parsed = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    $parsed = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($candidate in @($parsed)) {
         if ($candidate.PSObject.Properties['profileSha256']) {
             $entries.Add($candidate)

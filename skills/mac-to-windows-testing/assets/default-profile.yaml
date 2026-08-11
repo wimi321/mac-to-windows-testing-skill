@@ -24,6 +24,15 @@ scenarios:
         seconds: 2
       - action: "discover"
         checkpoint: "interaction-map"
+      - action: "audit"
+        checkpoint: "layout-audit"
+        failOn:
+          - "NONPOSITIVE_BOUNDS"
+          - "OUTSIDE_WINDOW"
+          - "ACTIONABLE_OVERLAP"
+      - action: "explore"
+        checkpoint: "safe-exploration"
+        maxControls: 12
       - action: "assert"
         target:
           controlType: "Window"

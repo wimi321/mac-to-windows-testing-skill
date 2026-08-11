@@ -70,7 +70,8 @@
         "nameContains": { "type": "string", "minLength": 1 },
         "nameRegex": { "type": "string", "minLength": 1 },
         "automationId": { "type": "string" },
-        "controlType": { "type": "string" }
+        "controlType": { "type": "string" },
+        "includeOffscreen": { "type": "boolean" }
       },
       "additionalProperties": false
     },
@@ -78,7 +79,7 @@
       "type": "object",
       "required": ["action"],
       "properties": {
-        "action": { "enum": ["wait", "discover", "screenshot", "assert", "click", "type", "shortcut", "close"] },
+        "action": { "enum": ["wait", "discover", "audit", "explore", "screenshot", "assert", "click", "type", "shortcut", "close"] },
         "checkpoint": { "type": "string" },
         "seconds": { "type": "number", "minimum": 0, "maximum": 300 },
         "target": { "$ref": "#/$defs/target" },
@@ -87,7 +88,21 @@
         "value": { "type": "string" },
         "text": { "type": "string" },
         "keys": { "type": "string" },
-        "tolerancePixels": { "type": "number", "minimum": 0, "maximum": 100 }
+        "tolerancePixels": { "type": "number", "minimum": 0, "maximum": 100 },
+        "maxControls": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "failOn": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "MISSING_ACCESSIBLE_NAME",
+              "NONPOSITIVE_BOUNDS",
+              "OFFSCREEN_ACTION",
+              "OUTSIDE_WINDOW",
+              "ACTIONABLE_OVERLAP"
+            ]
+          }
+        }
       },
       "additionalProperties": false
     },
